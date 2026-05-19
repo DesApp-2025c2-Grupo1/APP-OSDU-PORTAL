@@ -1,5 +1,16 @@
 const db = require('../../../database/db');
 
+const DIA_MAP = {
+  'Domingo':0,'domingo':0,'Sunday':0,
+  'Lunes':1,'lunes':1,'Monday':1,
+  'Martes':2,'martes':2,'Tuesday':2,
+  'Miercoles':3,'miercoles':3,'Miércoles':3,'miércoles':3,'Wednesday':3,
+  'Jueves':4,'jueves':4,'Thursday':4,
+  'Viernes':5,'viernes':5,'Friday':5,
+  'Sabado':6,'sabado':6,'Sábado':6,'sábado':6,'Saturday':6,
+};
+const normalizeDia = (d) => typeof d === 'number' ? d : (DIA_MAP[d] ?? -1);
+
 const parseJsonArray = (value) => {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -146,8 +157,8 @@ const findAgendaForAppointment = async (prestadorId, date, startTime, endTime, t
   return agendas.find((agenda) => {
     const bloques = parseJsonArray(agenda.bloques);
     return bloques.some((bloque) => {
-      const dias = (bloque.dias || []).map(Number);
-      if (dias.length > 0 && !dias.includes(day)) return false;
+      const dias = bloque.dias || [];
+      if (dias.length > 0 && !dias.map(normalizeDia).includes(day)) return false;
       return String(bloque.desde || '') <= startTime && String(bloque.hasta || '') >= endTime;
     });
   }) || null;

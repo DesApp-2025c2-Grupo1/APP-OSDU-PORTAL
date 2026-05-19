@@ -1,17 +1,10 @@
-/**
- * Tests de Integración entre módulos
- *
- * Flujo 1: Auth ↔ Afiliados — Login verifica estado del afiliado
- * Flujo 2: Auth — Acceso protegido con JWT
- * Flujo 3: Prestadores ↔ Afiliados — Búsqueda e historia clínica
- */
 
 const request = require('supertest');
 const app = require('../index');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// --- Mocks de repositorios ---
+
 const authRepository = require('../modules/auth/repository/auth.repository');
 const affiliateRepository = require('../modules/affiliates/repository/affiliate.repository');
 const prestadoresRepository = require('../modules/prestadores/repository/prestadores.repository');
@@ -21,9 +14,7 @@ jest.mock('../modules/affiliates/repository/affiliate.repository');
 jest.mock('../modules/prestadores/repository/prestadores.repository');
 jest.mock('jsonwebtoken');
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FLUJO 1: Auth ↔ Afiliados — Login con verificación de estado de afiliado
-// ─────────────────────────────────────────────────────────────────────────────
+
 describe('Flujo 1: Auth ↔ Afiliados — Login y estado de cuenta', () => {
   let hashedPassword;
 
@@ -89,9 +80,7 @@ describe('Flujo 1: Auth ↔ Afiliados — Login y estado de cuenta', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FLUJO 2: Auth — Endpoints protegidos con JWT
-// ─────────────────────────────────────────────────────────────────────────────
+
 describe('Flujo 2: Auth — Acceso protegido con JWT', () => {
   afterEach(() => {
     jest.clearAllMocks();
@@ -133,9 +122,7 @@ describe('Flujo 2: Auth — Acceso protegido con JWT', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FLUJO 3: Prestadores ↔ Afiliados — Búsqueda e historia clínica
-// ─────────────────────────────────────────────────────────────────────────────
+
 describe('Flujo 3: Prestadores ↔ Afiliados — Búsqueda e historia clínica', () => {
   beforeEach(() => {
     // Simula un prestador autenticado

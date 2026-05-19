@@ -28,6 +28,12 @@ const upload = require('../../../middlewares/upload');
  */
 router.get('/', authorize('ADMIN'), affiliatesService.getAffiliatesByStatus);
 
+// Turnos del afiliado autenticado
+router.get('/turnos/disponibles', authorize('AFILIADO'), affiliatesService.getAvailableSlots);
+router.get('/turnos', authorize('AFILIADO'), affiliatesService.getMyAppointments);
+router.post('/turnos', authorize('AFILIADO'), affiliatesService.bookAppointment);
+router.put('/turnos/:id/cancelar', authorize('AFILIADO'), affiliatesService.cancelAppointment);
+
 /**
  * @swagger
  * /affiliates/{id}:
