@@ -379,6 +379,162 @@ const cancelAppointment = async (req, res) => {
   }
 };
 
+// ── Reintegros ────────────────────────────────────────────────────────────────
+
+const STATUS_REINTEGRO_MAP = {
+  'Pendiente':    'Recibido',
+  'En análisis':  'En análisis',
+  'Observada':    'Observado',
+  'Aprobada':     'Aprobado',
+  'Rechazada':    'Rechazado',
+};
+
+const serializeReintegro = (r) => ({
+  id: r.id,
+  nro: r.request_number,
+  fechaPrestacion: toDateStr(r.request_date),
+  medico: r.medico_nombre,
+  especialidad: r.especialidad,
+  lugarAtencion: r.lugar_atencion,
+  factura: {
+    cuit: r.factura_cuit,
+    valorTotal: r.factura_valor_total ? parseFloat(r.factura_valor_total) : 0,
+  },
+  formaPago: r.forma_pago,
+  cbu: r.cbu || null,
+  observaciones: r.description || '',
+  estado: STATUS_REINTEGRO_MAP[r.status] || 'Recibido',
+  estadoRaw: r.status,
+  fechaEstado: toDateStr(r.updated_at || r.created_at),
+  mensajeObservacion: r.status === 'Observada' ? (r.status_reason || null) : null,
+  motivoEstado: r.status_reason || null,
+  // Campos extra disponibles en consultas admin (JOIN con affiliates)
+  afiliado: r.affiliate_first_name
+    ? `${r.affiliate_first_name} ${r.affiliate_last_name}`.trim()
+    : (r.affiliate_name || null),
+  credencial: r.credencial_number || null,
+});
+
+const getMyReintegros = async (req, res) => {
+  try {
+    const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
+    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
+
+    const rows = await affiliateRepository.getReintegrosByAffiliate(affiliate.id);
+    return res.status(200).json(rows.map(serializeReintegro));
+  } catch (error) {
+    console.error('Error getMyReintegros:', error);
+    return res.status(500).json({ message: 'Error al obtener los reintegros' });
+  }
+};
+
+const submitReintegro = async (req, res) => {
+  try {
+    const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
+    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
+
+    const { fechaPrestacion, medico, especialidad, lugarAtencion, facturaCuit, facturaValor, formaPago, cbu, observaciones } = req.body;
+
+    if (!fechaPrestacion) return res.status(400).json({ message: 'La fecha de prestación es requerida' });
+    assertISODate(fechaPrestacion);
+    if (!medico || !String(medico).trim()) return res.status(400).json({ message: 'El médico es requerido' });
+    if (!especialidad || !String(especialidad).trim()) return res.status(400).json({ message: 'La especialidad es requerida' });
+    if (!lugarAtencion || !String(lugarAtencion).trim()) return res.status(400).json({ message: 'El lugar de atención es requerido' });
+    if (!facturaCuit || !String(facturaCuit).trim()) return res.status(400).json({ message: 'El CUIT del emisor es requerido' });
+    const valor = parseFloat(String(facturaValor).replace(',', '.'));
+    if (!facturaValor || isNaN(valor) || valor <= 0) return res.status(400).json({ message: 'El valor total de la factura debe ser mayor a 0' });
+    if (!formaPago) return res.status(400).json({ message: 'La forma de pago es requerida' });
+    if (formaPago === 'Transferencia' && (!cbu || String(cbu).replace(/\D/g, '').length < 22)) {
+      return res.status(400).json({ message: 'El CBU/CVU debe tener 22 dígitos para transferencia' });
+    }
+
+    const reintegro = await affiliateRepository.createReintegro(affiliate.id, {
+      affiliateName: `${affiliate.first_name} ${affiliate.last_name}`,
+      fechaPrestacion,
+      medico: String(medico).trim(),
+      especialidad: String(especialidad).trim(),
+      lugarAtencion: String(lugarAtencion).trim(),
+      facturaCuit: String(facturaCuit).trim(),
+      facturaValor: valor,
+      formaPago,
+      cbu: cbu || null,
+      observaciones: observaciones || null,
+    });
+
+    return res.status(201).json(serializeReintegro(reintegro));
+  } catch (error) {
+    console.error('Error submitReintegro:', error);
+    return res.status(500).json({ message: 'Error al enviar el reintegro' });
+  }
+};
+
+const responderObservacion = async (req, res) => {
+  try {
+    const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
+    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
+
+    const { id } = req.params;
+    const respuesta = String(req.body.respuesta || '').trim();
+    if (!respuesta) return res.status(400).json({ message: 'La respuesta es requerida' });
+
+    const reintegro = await affiliateRepository.responderObservacion(id, affiliate.id, respuesta);
+    if (!reintegro) return res.status(404).json({ message: 'Reintegro no encontrado o no está en estado Observada' });
+
+    return res.status(200).json(serializeReintegro(reintegro));
+  } catch (error) {
+    console.error('Error responderObservacion:', error);
+    return res.status(500).json({ message: 'Error al enviar la respuesta' });
+  }
+};
+
+// ── Admin — Reintegros ────────────────────────────────────────────────────────
+
+const ESTADOS_REINTEGRO_VALIDOS = new Set(['Pendiente', 'En análisis', 'Observada', 'Aprobada', 'Rechazada']);
+
+const adminGetReintegros = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    const { rows, total } = await affiliateRepository.getAllReintegrosForAdmin({
+      status: status || null,
+      page: Number(page),
+      limit: Number(limit),
+    });
+    return res.status(200).json({
+      data: rows.map(serializeReintegro),
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+    });
+  } catch (error) {
+    console.error('Error adminGetReintegros:', error);
+    return res.status(500).json({ message: 'Error al obtener los reintegros' });
+  }
+};
+
+const adminUpdateReintegroStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado, motivo } = req.body;
+
+    if (!estado || !ESTADOS_REINTEGRO_VALIDOS.has(estado))
+      return res.status(400).json({ message: 'Estado inválido' });
+    if (['Aprobada', 'Rechazada', 'Observada'].includes(estado) && !String(motivo || '').trim())
+      return res.status(400).json({ message: 'El motivo es requerido para este estado' });
+
+    const reintegro = await affiliateRepository.updateReintegroStatus(id, {
+      status: estado,
+      motivo: String(motivo || '').trim() || null,
+      userId: req.user.id,
+    });
+    if (!reintegro) return res.status(404).json({ message: 'Reintegro no encontrado' });
+
+    return res.status(200).json(serializeReintegro(reintegro));
+  } catch (error) {
+    console.error('Error adminUpdateReintegroStatus:', error);
+    return res.status(500).json({ message: 'Error al actualizar el estado' });
+  }
+};
+
 module.exports = {
   createAffiliate,
   getAffiliatesByStatus,
@@ -391,4 +547,9 @@ module.exports = {
   getAvailableSlots,
   bookAppointment,
   cancelAppointment,
+  getMyReintegros,
+  submitReintegro,
+  responderObservacion,
+  adminGetReintegros,
+  adminUpdateReintegroStatus,
 }

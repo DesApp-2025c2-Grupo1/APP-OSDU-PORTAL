@@ -347,6 +347,52 @@ const markNotificationAsRead = async (id, prestadorId, trx = db) => {
   return notification;
 };
 
+// ── Admin solicitudes ─────────────────────────────────────────────────────────
+
+const getAllRequestsForAdmin = async ({ status, page = 1, limit = 20 } = {}, trx = db) => {
+  let base = trx('prestador_requests as pr')
+    .leftJoin('prestadores as p', 'pr.prestador_id', 'p.id')
+    .leftJoin('affiliates as a', 'pr.affiliate_id', 'a.id')
+    .whereNotNull('pr.prestador_id');   // solo solicitudes iniciadas por prestador
+  if (status) base = base.where('pr.status', status);
+
+  const countResult = await base.clone().count('pr.id as count').first();
+
+  const rows = await base.clone()
+    .select(
+      'pr.*',
+      'p.first_name as prestador_first_name',
+      'p.last_name as prestador_last_name',
+      'p.cuit as prestador_cuit',
+      'a.first_name as affiliate_first_name',
+      'a.last_name as affiliate_last_name',
+      'a.credencial_number'
+    )
+    .orderBy('pr.created_at', 'desc')
+    .limit(limit)
+    .offset((page - 1) * limit);
+
+  return { rows, total: Number(countResult.count) };
+};
+
+const updateRequestStatusAdmin = async (id, { status, motivo, userId }, trx = db) => {
+  const patch = {
+    status,
+    updated_at: trx.fn.now(),
+    status_reason: motivo || null,
+  };
+  if (['Aprobada', 'Rechazada'].includes(status)) {
+    patch.resolved_by_user_id = userId;
+    patch.resolved_at = trx.fn.now();
+  }
+  const [req] = await trx('prestador_requests')
+    .where({ id })
+    .whereNotNull('prestador_id')
+    .update(patch)
+    .returning('*');
+  return req;
+};
+
 module.exports = {
   getPrestadorByCuit,
   getPrestadorByUserId,
@@ -356,6 +402,8 @@ module.exports = {
   getRequestByIdForPrestador,
   updateRequestStatus,
   createRequest,
+  getAllRequestsForAdmin,
+  updateRequestStatusAdmin,
   getAppointmentsByDate,
   getAppointmentsByMonth,
   createAppointment,

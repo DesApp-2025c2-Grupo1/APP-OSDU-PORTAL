@@ -698,12 +698,79 @@ const markNotificationAsRead = async (req, res) => {
   return res.status(200).json({ message: 'OK' });
 };
 
+// ── Admin solicitudes ─────────────────────────────────────────────────────────
+
+const serializeRequestAdmin = (r) => ({
+  id: r.id,
+  nro: r.request_number,
+  prestador: r.prestador_first_name
+    ? `${r.prestador_first_name} ${r.prestador_last_name}`.trim()
+    : null,
+  prestadorCuit: r.prestador_cuit || null,
+  afiliado: r.affiliate_first_name
+    ? `${r.affiliate_first_name} ${r.affiliate_last_name}`.trim()
+    : (r.affiliate_name || null),
+  credencial: r.credencial_number || null,
+  tipo: r.type,
+  estado: r.status,
+  motivoEstado: r.status_reason || null,
+  fecha: formatDate(r.request_date),
+  fechaEstado: formatDate(r.updated_at || r.created_at),
+  descripcion: r.description || '',
+  adjunto: r.attachment_name ? {
+    nombre: r.attachment_name,
+    tipo: r.attachment_type,
+    tamanio: r.attachment_size,
+  } : null,
+});
+
+const adminGetSolicitudes = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    const { rows, total } = await prestadoresRepository.getAllRequestsForAdmin({
+      status: status || null,
+      page: Number(page),
+      limit: Number(limit),
+    });
+    return res.status(200).json({
+      data: rows.map(serializeRequestAdmin),
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+    });
+  } catch (error) {
+    return sendError(res, error, 'Error adminGetSolicitudes:');
+  }
+};
+
+const adminUpdateSolicitudStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado, motivo } = req.body;
+    if (!estado || !ESTADOS_SOLICITUD.has(estado))
+      return res.status(400).json({ message: 'Estado inválido' });
+    if (['Aprobada', 'Rechazada', 'Observada'].includes(estado) && !String(motivo || '').trim())
+      return res.status(400).json({ message: 'El motivo es requerido para este estado' });
+    const updated = await prestadoresRepository.updateRequestStatusAdmin(id, {
+      status: estado,
+      motivo: String(motivo || '').trim() || null,
+      userId: req.user.id,
+    });
+    if (!updated) return res.status(404).json({ message: 'Solicitud no encontrada' });
+    return res.status(200).json(serializeRequestAdmin(updated));
+  } catch (error) {
+    return sendError(res, error, 'Error adminUpdateSolicitudStatus:');
+  }
+};
+
 module.exports = {
   login,
   getDashboardStats,
   getRequests,
   createRequest,
   updateRequestStatus,
+  adminGetSolicitudes,
+  adminUpdateSolicitudStatus,
   getAppointments,
   getAppointmentsByMonth,
   createAppointment,
