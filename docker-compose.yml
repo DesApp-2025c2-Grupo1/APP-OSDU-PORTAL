@@ -1,5 +1,7 @@
 services:
   app-unahur-portal:
+    profiles:
+      - app
     build: .
     image: unahur/app-portal:1.0
     container_name: app-unahur-portal
@@ -13,6 +15,11 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       JWT_SECRET: ${JWT_SECRET}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      EMAIL_FROM: ${EMAIL_FROM}
     volumes:
       - ./:/app 
       - /app/node_modules 
@@ -34,6 +41,8 @@ services:
       - ms-unahur-portal-network
 
   app-unahur-pgadmin:
+    profiles:
+      - tools
     image: dpage/pgadmin4
     container_name: app-unahur-pgadmin
     ports:
@@ -43,6 +52,16 @@ services:
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-adminpassword}
     networks:
       - ms-unahur-portal-network
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: mailpit
+    ports:
+      - "8025:8025" # UI
+      - "1025:1025" # SMTP
+    networks:
+      - ms-unahur-portal-network
+
 
 networks:
   ms-unahur-portal-network:

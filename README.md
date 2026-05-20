@@ -1,93 +1,104 @@
-# Portal de la Universidad Nacional de Hurlingham (UNAHUR)
+# 🏥 ms-unahur-portal (Backend)
 
-Este proyecto es el backend para el portal de la UNAHUR, construido con Node.js, Express y PostgreSQL.
+Sistema de gestión para el Portal de Medicina Integral UNAHUR. Este microservicio se encarga de la autenticación, gestión de afiliados y notificaciones por correo electrónico.
 
-## 🚀 Requisitos Previos
+## 🚀 Tecnologías
+- **Runtime:** Node.js (v24+)
+- **Framework:** Express.js
+- **Base de Datos:** PostgreSQL
+- **Query Builder:** Knex.js
+- **Seguridad:** JWT (Cookies HttpOnly) & Bcrypt
+- **Validación:** Joi
+- **Mails:** Nodemailer + Mailpit (Docker)
 
-- [Node.js](https://nodejs.org/) (v18 o superior)
-- [Docker](https://www.docker.com/) y [Docker Compose](https://docs.docker.com/compose/)
-- [Git](https://git-scm.com/)
+## 🛠️ Instalación y Ejecución
 
-## 🛠️ Configuración Inicial
+### Requisitos previos
+- Docker & Docker Compose
+- Node.js instalado (para desarrollo local)
 
-### 1. Clonar el repositorio
+### Configuración inicial
+1. Clona el repositorio.
+2. Asegúrate de tener el archivo `.env` configurado.
+3. Copia el archivo de ejemplo de variables de entorno si no existe:
+   ```bash
+   cp .env.example .env (si aplica)
+   ```
+
+### Levantar con Docker (Recomendado)
 ```bash
-git clone <url-del-repositorio>
-cd app-unahur-portal
+docker-compose up -d --build
 ```
+*El sistema estará disponible en el puerto configurado (ej. 9002).*
 
-### 2. Instalar dependencias
+### Migraciones y Datos de Prueba
+Para inicializar la base de datos y cargar los datos iniciales:
 ```bash
-npm install
+npm run migrate  # Crea las tablas (si tienes knex global o vía script)
+npm run seed     # Carga planes, roles y usuarios iniciales
 ```
 
-### 3. Variables de Entorno
-Crea un archivo `.env` en la raíz del proyecto basándote en la siguiente configuración (ajusta según sea necesario):
+## 📂 Organización del Proyecto
+El proyecto sigue una arquitectura modular y principios de Responsabilidad Única:
+- `src/config/`: Configuraciones globales (DB, Mail, Swagger).
+- `src/database/`: Migraciones y seeds de Knex.
+- `src/modules/`: Lógica de negocio dividida por dominio:
+    - `auth/`: Autenticación, registro interno y gestión de tokens.
+    - `affiliates/`: Gestión de afiliados, estados y grupos familiares. Incluye validaciones con Joi y transacciones atómicas.
+    - `mail/`: Servicio de notificaciones con sistema de caché de plantillas para alto rendimiento.
 
-```env
-PORT=5000
-DB_HOST=localhost
-DB_PORT=5433
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=app-unahur-portal
-JWT_SECRET=tu_secreto_super_seguro
-```
+## 📧 Pruebas de Correo (Mailpit)
+Para visualizar los correos enviados por el sistema en desarrollo:
+1. Asegúrate de que el contenedor `mailpit` esté corriendo.
+2. Accede a: **`http://localhost:8025`**
 
-> [!NOTE]
-> El puerto de la base de datos en `docker-compose` está mapeado al **5433** para evitar conflictos con instalaciones locales de PostgreSQL.
+## 🔒 Seguridad e Integridad
+- **Transacciones SQL:** El registro de afiliados utiliza transacciones para asegurar que no se creen usuarios sin su afiliación correspondiente (o viceversa).
+- **Validación de Esquema:** Todas las entradas al sistema son validadas con `Joi` antes de ser procesadas.
+- **Cookies HttpOnly:** Los tokens JWT se manejan vía cookies para prevenir ataques XSS.
+- **BCrypt:** Hashing de contraseñas con factor de costo 10.
 
-## 🐳 Docker y Base de Datos
+## Para correr los test usar npm run test:report
+- Resultados de las pruebas:
 
-### Levantar los servicios (PostgreSQL + pgAdmin)
-```bash
-docker-compose up -d
-```
+- health.test.js — 1 test
+Verifica que el servidor esté vivo.
 
-Esto levantará:
-- **PostgreSQL**: puerto 5433
-- **pgAdmin**: http://localhost:8080 (Credenciales en docker-compose.yml)
+✅ GET /health devuelve 200
+auth.test.js — 5 tests
+Prueba el login y el acceso protegido:
 
-### Inicializar la Base de Datos
-Debes ejecutar las migraciones y las semillas para tener la estructura y datos básicos:
+✅ Login con credenciales correctas → devuelve datos del usuario
+❌ Login con contraseña incorrecta → 401
+❌ Login con usuario que no existe → 401
+❌ Login con afiliado cuya cuenta está inactiva → 401
+❌ GET /auth/me sin token → 401
 
-```bash
-# Correr migraciones
-npm run migrate
+- usuarios.test.js — 4 tests. Prueba los endpoints de afiliados (requieren token JWT):
 
-# Correr semillas (Roles y Usuario Admin)
-npm run seed
-```
+✅ GET /affiliates/1 con token → devuelve el afiliado
+❌ GET /affiliates/99999 con token → 404 (no existe)
+✅ GET /affiliates con token → devuelve lista
+✅ GET /affiliates?status=ACTIVE con token → filtra por estado
+❌ GET /affiliates/1 sin token → 401
 
-## 💻 Desarrollo Local
+- integration.test.js — 11 tests. Prueba cómo los 3 módulos interactúan entre sí:
 
-Para iniciar el servidor en modo desarrollo con recarga automática:
-```bash
-npm run dev
-```
+- Flujo Auth ↔ Afiliados:
 
-El servidor estará corriendo en: [http://localhost:5000](http://localhost:5000)
+✅ Afiliado activo puede hacer login
+❌ Afiliado inactivo no puede hacer login (el módulo auth consulta al módulo afiliados)
+✅ ADMIN hace login sin verificar estado de afiliado
 
-## 📖 Documentación de la API (Swagger)
+- Flujo Auth protegido:
 
-Una vez levantada la aplicación, puedes acceder a la documentación interactiva en:
-[http://localhost:5000/api-docs](http://localhost:5000/api-docs)
+❌ /auth/me sin token → 401
+✅ /auth/me con token válido → devuelve datos
+❌ /auth/me con token inválido → 403
 
-## 📜 Scripts Disponibles
+- Flujo Prestadores ↔ Afiliados:
 
-- `npm run dev`: Inicia el servidor con `node --watch`.
-- `npm run migrate`: Ejecuta las migraciones pendientes.
-- `npm run rollback`: Revierte la última migración.
-- `npm run rollback-all`: Revierte todas las migraciones.
-- `npm run seed`: Puebla la base de datos con datos de prueba.
-- `npm test`: Ejecuta los tests con Jest.
-
-## 📁 Estructura del Proyecto
-
-- `src/config`: Configuraciones (DB, Swagger, etc.)
-- `src/database`: Migraciones y Semillas de Knex.
-- `src/modules`: Lógica de negocio dividida por módulos (Auth, etc.)
-  - `routes/`: Definición de endpoints.
-  - `services/`: Lógica de control.
-  - `repositories/`: Consultas a la base de datos.
-  - `utils/`: Utilidades y servicios compartidos.
+❌ Buscar afiliados sin token → 401
+✅ Prestador busca afiliados con token → devuelve lista
+❌ Ver historia clínica sin token → 401
+✅ Prestador ve historia clínica de un afiliado con token → devuelve historial
