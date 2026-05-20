@@ -34,6 +34,15 @@ router.get('/turnos', authorize('AFILIADO'), affiliatesService.getMyAppointments
 router.post('/turnos', authorize('AFILIADO'), affiliatesService.bookAppointment);
 router.put('/turnos/:id/cancelar', authorize('AFILIADO'), affiliatesService.cancelAppointment);
 
+// Reintegros del afiliado autenticado
+router.get('/reintegros', authorize('AFILIADO'), affiliatesService.getMyReintegros);
+router.post('/reintegros', authorize('AFILIADO'), affiliatesService.submitReintegro);
+router.put('/reintegros/:id/respuesta', authorize('AFILIADO'), affiliatesService.responderObservacion);
+
+// Admin — gestión de reintegros
+router.get('/reintegros/admin', authorize('ADMIN'), affiliatesService.adminGetReintegros);
+router.put('/reintegros/:id/admin/estado', authorize('ADMIN'), affiliatesService.adminUpdateReintegroStatus);
+
 /**
  * @swagger
  * /affiliates/{id}:

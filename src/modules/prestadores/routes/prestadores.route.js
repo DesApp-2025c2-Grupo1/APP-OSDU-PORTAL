@@ -10,6 +10,9 @@ router.post('/prestadores/login', prestadoresService.login);
 
 router.get('/dashboard/stats', authorize('PRESTADOR'), prestadoresService.getDashboardStats);
 
+router.get('/solicitudes/admin', authorize('ADMIN'), prestadoresService.adminGetSolicitudes);
+router.put('/solicitudes/:id/admin/estado', authorize('ADMIN'), prestadoresService.adminUpdateSolicitudStatus);
+
 router.get('/solicitudes', authorize('PRESTADOR'), prestadoresService.getRequests);
 router.post('/solicitudes', authorize('PRESTADOR'), prestadoresService.createRequest);
 router.put('/solicitudes/:id/estado', authorize('PRESTADOR'), prestadoresService.updateRequestStatus);

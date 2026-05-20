@@ -109,6 +109,87 @@ const cancelAppointment = async (id, motivo, trx = db) => {
     return updated;
 };
 
+// ── Reintegros ────────────────────────────────────────────────────────────────
+
+const getReintegrosByAffiliate = async (affiliateId, trx = db) => {
+    return trx('prestador_requests')
+        .where({ affiliate_id: affiliateId, type: 'Reintegro' })
+        .whereNull('prestador_id')   // solo reintegros iniciados por el afiliado
+        .orderBy('request_date', 'desc')
+        .orderBy('id', 'desc');
+};
+
+const createReintegro = async (affiliateId, data, trx = db) => {
+    const [req] = await trx('prestador_requests')
+        .insert({
+            prestador_id: null,
+            affiliate_id: affiliateId,
+            request_number: `REI-${Date.now()}`,
+            affiliate_name: data.affiliateName,
+            type: 'Reintegro',
+            status: 'Pendiente',
+            request_date: data.fechaPrestacion,
+            description: data.observaciones || null,
+            medico_nombre: data.medico,
+            especialidad: data.especialidad,
+            lugar_atencion: data.lugarAtencion,
+            factura_cuit: data.facturaCuit,
+            factura_valor_total: data.facturaValor,
+            forma_pago: data.formaPago,
+            cbu: data.cbu || null,
+        })
+        .returning('*');
+    return req;
+};
+
+const responderObservacion = async (id, affiliateId, respuesta, trx = db) => {
+    const [req] = await trx('prestador_requests')
+        .where({ id, affiliate_id: affiliateId, status: 'Observada' })
+        .update({ status: 'En análisis', affiliate_response: respuesta, updated_at: trx.fn.now() })
+        .returning('*');
+    return req;
+};
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+
+const getAllReintegrosForAdmin = async ({ status, page = 1, limit = 20 } = {}, trx = db) => {
+    // Base sin select para que el count no mezcle columnas con agregados
+    let base = trx('prestador_requests as pr')
+        .leftJoin('affiliates as a', 'pr.affiliate_id', 'a.id')
+        .where('pr.type', 'Reintegro')
+        .whereNull('pr.prestador_id');   // solo reintegros iniciados por afiliado
+    if (status) base = base.where('pr.status', status);
+
+    const countResult = await base.clone().count('pr.id as count').first();
+
+    const rows = await base.clone()
+        .select(
+            'pr.*',
+            'a.first_name as affiliate_first_name',
+            'a.last_name as affiliate_last_name',
+            'a.credencial_number'
+        )
+        .orderBy('pr.created_at', 'desc')
+        .limit(limit)
+        .offset((page - 1) * limit);
+
+    return { rows, total: Number(countResult.count) };
+};
+
+const updateReintegroStatus = async (id, { status, motivo, userId }, trx = db) => {
+    const patch = { status, updated_at: trx.fn.now() };
+    if (motivo) patch.status_reason = motivo;
+    if (['Aprobada', 'Rechazada'].includes(status)) {
+        patch.resolved_by_user_id = userId;
+        patch.resolved_at = trx.fn.now();
+    }
+    const [req] = await trx('prestador_requests')
+        .where({ id, type: 'Reintegro' })
+        .update(patch)
+        .returning('*');
+    return req;
+};
+
 module.exports = {
     createAffiliate,
     existsAffiliate,
@@ -124,4 +205,9 @@ module.exports = {
     getAppointmentById,
     createAffiliateAppointment,
     cancelAppointment,
+    getReintegrosByAffiliate,
+    createReintegro,
+    responderObservacion,
+    getAllReintegrosForAdmin,
+    updateReintegroStatus,
 }
