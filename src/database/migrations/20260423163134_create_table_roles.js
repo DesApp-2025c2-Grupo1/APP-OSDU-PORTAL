@@ -5,10 +5,10 @@
 exports.up = function (knex) {
     return knex.schema.createTable('roles', function (table) {
         table.increments('id').primary();
-        table.string('role_name').notNullable();
-        table.string('role_description').notNullable();
-        table.timestamp('created_at').defaultTo(knex.fn.now());
-        table.timestamp('updated_at').defaultTo(knex.fn.now());
+        table.string('nombre_rol').notNullable();
+        table.string('descripcion_rol').notNullable();
+        table.timestamp('creado_en').defaultTo(knex.fn.now());
+        table.timestamp('actualizado_en').defaultTo(knex.fn.now());
     });
 };
 

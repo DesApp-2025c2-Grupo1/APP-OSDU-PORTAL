@@ -2,11 +2,11 @@ exports.up = function(knex) {
   return knex.schema.createTable('prestador_notifications', (table) => {
     table.increments('id').primary();
     table.integer('prestador_id').unsigned().references('id').inTable('prestadores').onDelete('CASCADE');
-    table.string('title').notNullable();
-    table.string('text').notNullable();
-    table.string('icon_class');
-    table.boolean('unread').defaultTo(true);
-    table.timestamp('created_at').defaultTo(knex.fn.now());
+    table.string('titulo').notNullable();
+    table.string('texto').notNullable();
+    table.string('clase_icono');
+    table.boolean('no_leida').defaultTo(true);
+    table.timestamp('creado_en').defaultTo(knex.fn.now());
   });
 };
 

@@ -7,8 +7,8 @@ exports.up = async function(knex) {
   await knex.schema.createTable('especialidades', function(table) {
     table.increments('id').primary();
     table.string('nombre', 100).notNullable().unique();
-    table.timestamp('created_at').defaultTo(knex.fn.now());
-    table.timestamp('updated_at').defaultTo(knex.fn.now());
+    table.timestamp('creado_en').defaultTo(knex.fn.now());
+    table.timestamp('actualizado_en').defaultTo(knex.fn.now());
   });
 
   // 2. Prestador_Especialidades pivot
@@ -28,8 +28,8 @@ exports.up = async function(knex) {
     table.string('provincia', 150);
     table.string('cp', 20);
     table.jsonb('horarios').defaultTo('[]'); // { desde, hasta, dias: [] }
-    table.timestamp('created_at').defaultTo(knex.fn.now());
-    table.timestamp('updated_at').defaultTo(knex.fn.now());
+    table.timestamp('creado_en').defaultTo(knex.fn.now());
+    table.timestamp('actualizado_en').defaultTo(knex.fn.now());
   });
 
   // 4. Modificar Prestadores para soportar arrays y tipo
@@ -41,22 +41,22 @@ exports.up = async function(knex) {
   });
 
   // Migrar los mails/telefonos simples al JSONB para los actuales y especialidades
-  const prestadores = await knex('prestadores').select('id', 'email', 'phone', 'specialty');
+  const prestadores = await knex('prestadores').select('id', 'email', 'telefono', 'especialidad');
   for (const p of prestadores) {
     const dataToUpdate = {};
     if (p.email) dataToUpdate.mails = JSON.stringify([p.email]);
-    if (p.phone) dataToUpdate.telefonos = JSON.stringify([p.phone]);
+    if (p.telefono) dataToUpdate.telefonos = JSON.stringify([p.telefono]);
     
     if (Object.keys(dataToUpdate).length > 0) {
       await knex('prestadores').where('id', p.id).update(dataToUpdate);
     }
     
-    if (p.specialty) {
-      // Find or create specialty
-      let esp = await knex('especialidades').where({ nombre: p.specialty }).first();
+    if (p.especialidad) {
+      // Find or create especialidad
+      let esp = await knex('especialidades').where({ nombre: p.especialidad }).first();
       let espId;
       if (!esp) {
-        const [inserted] = await knex('especialidades').insert({ nombre: p.specialty }).returning('id');
+        const [inserted] = await knex('especialidades').insert({ nombre: p.especialidad }).returning('id');
         espId = inserted.id || inserted;
       } else {
         espId = esp.id;
@@ -72,7 +72,7 @@ exports.up = async function(knex) {
     }
   }
 
-  // Ahora podemos quitar 'specialty' si quisieramos, pero lo dejamos por consistencia con otros endpoints viejos si hay.
+  // Ahora podemos quitar 'especialidad' si quisieramos, pero lo dejamos por consistencia con otros endpoints viejos si hay.
 
   // 5. Agendas
   await knex.schema.createTable('agendas', function(table) {
@@ -85,8 +85,8 @@ exports.up = async function(knex) {
     table.date('fecha_fin');
     table.boolean('esta_activo').defaultTo(true);
     table.jsonb('bloques').defaultTo('[]'); // { dias: [], desde: string, hasta: string }
-    table.timestamp('created_at').defaultTo(knex.fn.now());
-    table.timestamp('updated_at').defaultTo(knex.fn.now());
+    table.timestamp('creado_en').defaultTo(knex.fn.now());
+    table.timestamp('actualizado_en').defaultTo(knex.fn.now());
   });
 };
 

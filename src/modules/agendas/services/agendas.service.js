@@ -1,4 +1,5 @@
 const db = require('../../../database/db');
+const { sendError } = require('../../../utils/api-error');
 
 const getActorUserId = (req) => req.user?.id || req.user?.id_usuario || req.user?.userId || null;
 
@@ -7,14 +8,14 @@ const createPrestadorAuditLog = async (trx, req, { prestadorId, action, reason =
 
   await trx('prestador_audit_logs').insert({
     prestador_id: prestadorId,
-    admin_user_id: getActorUserId(req),
-    action,
-    reason: reason || null,
+    admin_usuario_id: getActorUserId(req),
+    accion: action,
+    motivo: reason || null,
     metadata: JSON.stringify({
       actorRole: req.user?.role || null,
       ...metadata
     }),
-    created_at: trx.fn.now()
+    creado_en: trx.fn.now()
   });
 };
 
@@ -25,7 +26,7 @@ const serializeAgenda = async (a) => {
 
   return {
     id: String(a.id),
-    prestador: p ? `${p.first_name} ${p.last_name}` : '',
+    prestador: p ? `${p.nombre} ${p.apellido}` : '',
     cuitCuil: p ? p.cuit : '',
     tipoPrestador: p ? p.tipo_prestador : '',
     especialidad: esp ? esp.nombre : '',
@@ -69,17 +70,17 @@ const getAll = async (req, res) => {
     const result = await Promise.all(promises);
     return res.status(200).json(result);
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al obtener agendas');
   }
 };
 
 const getById = async (req, res) => {
   try {
     const a = await db('agendas').where('id', req.params.id).first();
-    if (!a) return res.status(404).json({ error: 'Agenda not found' });
+    if (!a) return res.status(404).json({ error: 'Agenda no encontrada', message: 'Agenda no encontrada' });
     return res.status(200).json(await serializeAgenda(a));
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al obtener la agenda');
   }
 };
 
@@ -120,7 +121,7 @@ const create = async (req, res) => {
     const created = await db('agendas').where('id', id).first();
     return res.status(201).json(await serializeAgenda(created));
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al crear la agenda');
   }
 };
 
@@ -128,7 +129,7 @@ const update = async (req, res) => {
   try {
     const { cuitCuil, idEspecialidad, idLugar, duracionTurno, bloques, fechaInicio, fechaFin } = req.body;
     const a = await db('agendas').where('id', req.params.id).first();
-    if (!a) return res.status(404).json({ error: 'Agenda not found' });
+    if (!a) return res.status(404).json({ error: 'Agenda no encontrada', message: 'Agenda no encontrada' });
 
     const updateData = {};
     if (cuitCuil) {
@@ -160,14 +161,14 @@ const update = async (req, res) => {
     const updated = await db('agendas').where('id', req.params.id).first();
     return res.status(200).json(await serializeAgenda(updated));
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al actualizar la agenda');
   }
 };
 
 const remove = async (req, res) => {
   try {
     const a = await db('agendas').where('id', req.params.id).first();
-    if (!a) return res.status(404).json({ error: 'Agenda not found' });
+    if (!a) return res.status(404).json({ error: 'Agenda no encontrada', message: 'Agenda no encontrada' });
 
     await db.transaction(async (trx) => {
       await trx('agendas').where('id', req.params.id).del();
@@ -178,9 +179,9 @@ const remove = async (req, res) => {
         metadata: { agendaId: a.id }
       });
     });
-    return res.status(200).json({ message: 'Deleted' });
+    return res.status(200).json({ message: 'Agenda eliminada correctamente' });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al eliminar la agenda');
   }
 };
 

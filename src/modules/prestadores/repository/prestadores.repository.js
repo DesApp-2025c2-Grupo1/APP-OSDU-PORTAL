@@ -22,34 +22,124 @@ const parseJsonArray = (value) => {
   }
 };
 
+const prestadorColumns = [
+  'prestadores.id',
+  'prestadores.usuario_id',
+  'prestadores.cuit',
+  'prestadores.nombre as first_name',
+  'prestadores.apellido as last_name',
+  'prestadores.nro_documento as document_number',
+  'prestadores.email',
+  'prestadores.telefono as phone',
+  'prestadores.especialidad as specialty',
+  'prestadores.activo as status',
+  'prestadores.tipo_prestador',
+  'prestadores.centro_medico_id',
+  'prestadores.telefonos',
+  'prestadores.mails',
+  'prestadores.estado',
+  'prestadores.baja_en as deactivated_at',
+  'prestadores.motivo_baja as deactivation_reason',
+  'prestadores.suspendido_en as suspended_at',
+  'prestadores.motivo_suspension as suspension_reason',
+  'prestadores.credenciales_enviadas_en as credentials_sent_at',
+  'prestadores.contrasenia_reseteada_en as password_reset_at',
+  'prestadores.creado_en as created_at',
+  'prestadores.actualizado_en as updated_at',
+];
+
+const requestColumns = [
+  'prestador_requests.*',
+  'afiliado_id as affiliate_id',
+  'nro_solicitud as request_number',
+  'afiliado_nombre as affiliate_name',
+  'tipo as type',
+  'estado as status',
+  'fecha_solicitud as request_date',
+  'descripcion as description',
+  'adjunto_nombre as attachment_name',
+  'adjunto_tipo as attachment_type',
+  'adjunto_tamanio as attachment_size',
+  'motivo_estado as status_reason',
+  'resuelto_por_usuario_id as resolved_by_usuario_id',
+  'resuelto_en as resolved_at',
+  'creado_en as created_at',
+  'actualizado_en as updated_at',
+];
+
+const appointmentColumns = [
+  'prestador_appointments.*',
+  'afiliado_id as affiliate_id',
+  'afiliado_nombre as affiliate_name',
+  'fecha_turno as appointment_date',
+  'hora_inicio as start_time',
+  'hora_fin as end_time',
+  'motivo as reason',
+  'nota as note',
+  'estado as status',
+  'motivo_cancelacion as cancellation_reason',
+  'atendido_en as attended_at',
+  'creado_en as created_at',
+  'actualizado_en as updated_at',
+];
+
+const situationColumns = [
+  'prestador_affiliate_situations.*',
+  'afiliado_id as affiliate_id',
+  'tipo_situacion_id as situation_type_id',
+  'tipo as type',
+  'fecha_inicio as start_date',
+  'fecha_fin as end_date',
+  'activa as active',
+  'observacion as observation',
+  'motivo_finalizacion as end_reason',
+  'creado_en as created_at',
+  'actualizado_en as updated_at',
+];
+
+const historyColumns = [
+  'prestador_clinical_history.*',
+  'afiliado_id as affiliate_id',
+  'turno_id as appointment_id',
+  'fecha as entry_date',
+  'profesional as doctor',
+  'especialidad as specialty',
+  'modalidad as modality',
+  'nota as note',
+  'nota_propia as own_note',
+  'creado_en as created_at',
+  'actualizado_en as updated_at',
+];
+
 const getPrestadorByCuit = async (cuit, trx = db) => {
   return trx('prestadores')
     .select(
-      'prestadores.*',
-      'users.password',
-      'users.must_change_password',
-      'users.email as user_email',
-      'roles.role_name'
+      ...prestadorColumns,
+      'usuarios.contrasenia as password',
+      'usuarios.debe_cambiar_password as must_change_password',
+      'usuarios.email as user_email',
+      'roles.nombre_rol as role_name'
     )
-    .join('users', 'prestadores.user_id', 'users.id')
-    .join('user_roles', 'users.id', 'user_roles.user_id')
-    .join('roles', 'user_roles.role_id', 'roles.id')
+    .join('usuarios', 'prestadores.usuario_id', 'usuarios.id')
+    .join('usuarios_roles', 'usuarios.id', 'usuarios_roles.usuario_id')
+    .join('roles', 'usuarios_roles.rol_id', 'roles.id')
     .where('prestadores.cuit', cuit)
     .first();
 };
 
 const getPrestadorByUserId = async (userId, trx = db) => {
-  return trx('prestadores').where({ user_id: userId }).first();
+  return trx('prestadores').select(prestadorColumns).where({ usuario_id: userId }).first();
 };
 
 const getDefaultPrestador = async (trx = db) => {
-  return trx('prestadores').orderBy('id').first();
+  return trx('prestadores').select(prestadorColumns).orderBy('id').first();
 };
 
 const getDashboardStats = async (prestadorId, trx = db) => {
   const requests = await trx('prestador_requests')
+    .select(requestColumns)
     .where({ prestador_id: prestadorId })
-    .orderBy('request_date', 'desc')
+    .orderBy('fecha_solicitud', 'desc')
     .orderBy('id', 'desc');
 
   return {
@@ -61,28 +151,29 @@ const getDashboardStats = async (prestadorId, trx = db) => {
 
 const getRequests = async (prestadorId, trx = db) => {
   return trx('prestador_requests')
+    .select(requestColumns)
     .where({ prestador_id: prestadorId })
-    .orderBy('request_date', 'desc')
+    .orderBy('fecha_solicitud', 'desc')
     .orderBy('id', 'desc');
 };
 
 const getRequestByIdForPrestador = async (id, prestadorId, trx = db) => {
-  return trx('prestador_requests').where({ id, prestador_id: prestadorId }).first();
+  return trx('prestador_requests').select(requestColumns).where({ id, prestador_id: prestadorId }).first();
 };
 
 const updateRequestStatus = async (id, prestadorId, status, reason, userId, trx = db) => {
   const [request] = await trx('prestador_requests')
     .where({ id, prestador_id: prestadorId })
     .update({
-      status,
-      status_reason: reason || null,
-      resolved_by_user_id: ['Aprobada', 'Rechazada'].includes(status) ? userId : null,
-      resolved_at: ['Aprobada', 'Rechazada'].includes(status) ? trx.fn.now() : null,
-      updated_at: trx.fn.now()
+      estado: status,
+      motivo_estado: reason || null,
+      resuelto_por_usuario_id: ['Aprobada', 'Rechazada'].includes(status) ? userId : null,
+      resuelto_en: ['Aprobada', 'Rechazada'].includes(status) ? trx.fn.now() : null,
+      actualizado_en: trx.fn.now()
     })
     .returning('*');
 
-  return request;
+  return getRequestByIdForPrestador(request.id, prestadorId, trx);
 };
 
 const createRequest = async (prestadorId, data, trx = db) => {
@@ -90,26 +181,27 @@ const createRequest = async (prestadorId, data, trx = db) => {
   const [request] = await trx('prestador_requests')
     .insert({
       prestador_id: prestadorId,
-      affiliate_id: data.affiliateId || null,
-      request_number: requestNumber,
-      affiliate_name: data.afiliado,
-      type: data.tipo,
-      status: data.estado || 'Pendiente',
-      request_date: data.fecha,
-      description: data.descripcion,
-      attachment_name: data.adjunto?.nombre || null,
-      attachment_type: data.adjunto?.tipo || null,
-      attachment_size: data.adjunto?.tamanio || null,
+      afiliado_id: data.affiliateId || null,
+      nro_solicitud: requestNumber,
+      afiliado_nombre: data.afiliado,
+      tipo: data.tipo,
+      estado: data.estado || 'Pendiente',
+      fecha_solicitud: data.fecha,
+      descripcion: data.descripcion,
+      adjunto_nombre: data.adjunto?.nombre || null,
+      adjunto_tipo: data.adjunto?.tipo || null,
+      adjunto_tamanio: data.adjunto?.tamanio || null,
     })
     .returning('*');
 
-  return request;
+  return getRequestByIdForPrestador(request.id, prestadorId, trx);
 };
 
 const getAppointmentsByDate = async (prestadorId, date, trx = db) => {
   return trx('prestador_appointments')
-    .where({ prestador_id: prestadorId, appointment_date: date })
-    .orderBy('start_time', 'asc');
+    .select(appointmentColumns)
+    .where({ prestador_id: prestadorId, fecha_turno: date })
+    .orderBy('hora_inicio', 'asc');
 };
 
 const getAppointmentsByMonth = async (prestadorId, year, month, trx = db) => {
@@ -117,30 +209,30 @@ const getAppointmentsByMonth = async (prestadorId, year, month, trx = db) => {
   const prefix = `${year}-${String(month).padStart(2, '0')}-%`;
   return trx('prestador_appointments')
     .where('prestador_id', prestadorId)
-    .andWhere('appointment_date', 'like', prefix)
-    .select('appointment_date')
-    .groupBy('appointment_date');
+    .andWhere('fecha_turno', 'like', prefix)
+    .select('fecha_turno as appointment_date')
+    .groupBy('fecha_turno');
 };
 
 const createAppointment = async (prestadorId, data, trx = db) => {
   const [appointment] = await trx('prestador_appointments')
     .insert({
       prestador_id: prestadorId,
-      affiliate_id: data.affiliateId,
+      afiliado_id: data.affiliateId,
       agenda_id: data.agendaId || null,
       especialidad_id: data.especialidadId || null,
       lugar_id: data.lugarId || null,
-      affiliate_name: data.afiliado,
-      appointment_date: data.date,
-      start_time: data.horaIni,
-      end_time: data.horaFin,
-      reason: data.motivo,
-      note: data.notas || null,
-      status: data.estado || 'reservado',
+      afiliado_nombre: data.afiliado,
+      fecha_turno: data.date,
+      hora_inicio: data.horaIni,
+      hora_fin: data.horaFin,
+      motivo: data.motivo,
+      nota: data.notas || null,
+      estado: data.estado || 'reservado',
     })
     .returning('*');
 
-  return appointment;
+  return trx('prestador_appointments').select(appointmentColumns).where({ id: appointment.id }).first();
 };
 
 const findAgendaForAppointment = async (prestadorId, date, startTime, endTime, trx = db) => {
@@ -166,10 +258,10 @@ const findAgendaForAppointment = async (prestadorId, date, startTime, endTime, t
 
 const hasOverlappingAppointment = async (prestadorId, date, startTime, endTime, ignoreId = null, trx = db) => {
   const query = trx('prestador_appointments')
-    .where({ prestador_id: prestadorId, appointment_date: date })
-    .whereNotIn('status', ['cancelado'])
-    .andWhere('start_time', '<', endTime)
-    .andWhere('end_time', '>', startTime);
+    .where({ prestador_id: prestadorId, fecha_turno: date })
+    .whereNotIn('estado', ['cancelado'])
+    .andWhere('hora_inicio', '<', endTime)
+    .andWhere('hora_fin', '>', startTime);
 
   if (ignoreId) query.whereNot('id', ignoreId);
   return !!await query.first();
@@ -178,48 +270,57 @@ const hasOverlappingAppointment = async (prestadorId, date, startTime, endTime, 
 const updateAppointmentNote = async (id, note, trx = db) => {
   const [appointment] = await trx('prestador_appointments')
     .where({ id })
-    .update({ note, updated_at: trx.fn.now() })
+    .update({ nota: note, actualizado_en: trx.fn.now() })
     .returning('*');
 
-  return appointment;
+  return trx('prestador_appointments').select(appointmentColumns).where({ id: appointment.id }).first();
 };
 
 const updateAppointmentStatus = async (id, prestadorId, data, trx = db) => {
   const patch = {
-    status: data.estado,
-    updated_at: trx.fn.now()
+    estado: data.estado,
+    actualizado_en: trx.fn.now()
   };
 
-  if (data.nota !== undefined) patch.note = data.nota;
-  if (data.motivoCancelacion !== undefined) patch.cancellation_reason = data.motivoCancelacion || null;
-  if (data.estado === 'atendido') patch.attended_at = trx.fn.now();
+  if (data.nota !== undefined) patch.nota = data.nota;
+  if (data.motivoCancelacion !== undefined) patch.motivo_cancelacion = data.motivoCancelacion || null;
+  if (data.estado === 'atendido') patch.atendido_en = trx.fn.now();
 
   const [appointment] = await trx('prestador_appointments')
     .where({ id, prestador_id: prestadorId })
     .update(patch)
     .returning('*');
 
-  return appointment;
+  return trx('prestador_appointments').select(appointmentColumns).where({ id: appointment.id }).first();
 };
 
 const searchAffiliates = async (query, trx = db) => {
   const like = `%${query.toLowerCase()}%`;
 
-  return trx('affiliates')
-    .select('*')
+  return trx('afiliados')
+    .select(
+      'id',
+      'nombre as first_name',
+      'apellido as last_name',
+      'nro_documento as document_number',
+      'nro_credencial as credencial_number',
+      'fecha_nacimiento as birth_date',
+      'activo as status'
+    )
     .where(function () {
-      this.whereRaw('LOWER(first_name) LIKE ?', [like])
-        .orWhereRaw('LOWER(last_name) LIKE ?', [like])
-        .orWhereRaw('LOWER(credencial_number) LIKE ?', [like])
-        .orWhereRaw('LOWER(document_number) LIKE ?', [like]);
+      this.whereRaw('LOWER(nombre) LIKE ?', [like])
+        .orWhereRaw('LOWER(apellido) LIKE ?', [like])
+        .orWhereRaw('LOWER(nro_credencial) LIKE ?', [like])
+        .orWhereRaw('LOWER(nro_documento) LIKE ?', [like]);
     })
     .limit(10);
 };
 
 const getClinicalHistoryByAffiliate = async (affiliateId, trx = db) => {
   return trx('prestador_clinical_history')
-    .where({ affiliate_id: affiliateId })
-    .orderBy('entry_date', 'desc')
+    .select(historyColumns)
+    .where({ afiliado_id: affiliateId })
+    .orderBy('fecha', 'desc')
     .orderBy('id', 'desc');
 };
 
@@ -231,103 +332,115 @@ const createClinicalHistoryEntry = async (affiliateId, prestadorId, data, trx = 
     .select('especialidades.nombre')
     .first();
 
-  const doctor = data.doctor || `${prestador.first_name} ${prestador.last_name}`.trim();
+  const doctor = data.doctor || `${prestador.nombre} ${prestador.apellido}`.trim();
   const [entry] = await trx('prestador_clinical_history')
     .insert({
-      affiliate_id: affiliateId,
+      afiliado_id: affiliateId,
       prestador_id: prestadorId,
-      appointment_id: data.turnoId || null,
-      entry_date: data.fecha,
-      doctor,
-      specialty: typeof specialty === 'string' ? specialty : specialty?.nombre || 'Sin especialidad',
-      modality: data.modalidad || 'Consulta',
-      note: data.nota,
-      own_note: true,
+      turno_id: data.turnoId || null,
+      fecha: data.fecha,
+      profesional: doctor,
+      especialidad: typeof specialty === 'string' ? specialty : specialty?.nombre || 'Sin especialidad',
+      modalidad: data.modalidad || 'Consulta',
+      nota: data.nota,
+      nota_propia: true,
     })
     .returning('*');
 
-  return entry;
+  return trx('prestador_clinical_history').select(historyColumns).where({ id: entry.id }).first();
 };
 
 const getSituationTypes = async (trx = db) => {
-  return trx('prestador_situation_types').select('id', 'name').orderBy('name');
+  return trx('prestador_situation_types').select('id', 'nombre as name').orderBy('nombre');
 };
 
 const getSituationsByAffiliate = async (affiliateId, trx = db) => {
   return trx('prestador_affiliate_situations')
-    .where({ affiliate_id: affiliateId })
-    .orderBy('start_date', 'desc')
+    .select(situationColumns)
+    .where({ afiliado_id: affiliateId })
+    .orderBy('fecha_inicio', 'desc')
     .orderBy('id', 'desc');
 };
 
 const createSituation = async (affiliateId, data, trx = db) => {
   const [situation] = await trx('prestador_affiliate_situations')
     .insert({
-      affiliate_id: affiliateId,
+      afiliado_id: affiliateId,
       prestador_id: data.prestadorId || null,
-      type: data.tipo,
-      start_date: data.fechaInicio,
-      end_date: data.fechaFin || null,
-      active: data.activa !== false,
-      observation: data.observacion || null,
-      end_reason: data.motivoFinalizacion || null,
+      tipo: data.tipo,
+      fecha_inicio: data.fechaInicio,
+      fecha_fin: data.fechaFin || null,
+      activa: data.activa !== false,
+      observacion: data.observacion || null,
+      motivo_finalizacion: data.motivoFinalizacion || null,
     })
     .returning('*');
 
-  return situation;
+  return trx('prestador_affiliate_situations').select(situationColumns).where({ id: situation.id }).first();
 };
 
 const updateSituation = async (affiliateId, situationId, data, trx = db) => {
   const patch = {
-    updated_at: trx.fn.now(),
+    actualizado_en: trx.fn.now(),
   };
 
-  if (data.tipo !== undefined) patch.type = data.tipo;
-  if (data.fechaInicio !== undefined) patch.start_date = data.fechaInicio;
-  if (data.fechaFin !== undefined) patch.end_date = data.fechaFin || null;
-  if (data.activa !== undefined) patch.active = data.activa;
-  if (data.observacion !== undefined) patch.observation = data.observacion || null;
-  if (data.motivoFinalizacion !== undefined) patch.end_reason = data.motivoFinalizacion || null;
+  if (data.tipo !== undefined) patch.tipo = data.tipo;
+  if (data.fechaInicio !== undefined) patch.fecha_inicio = data.fechaInicio;
+  if (data.fechaFin !== undefined) patch.fecha_fin = data.fechaFin || null;
+  if (data.activa !== undefined) patch.activa = data.activa;
+  if (data.observacion !== undefined) patch.observacion = data.observacion || null;
+  if (data.motivoFinalizacion !== undefined) patch.motivo_finalizacion = data.motivoFinalizacion || null;
 
   const [situation] = await trx('prestador_affiliate_situations')
-    .where({ id: situationId, affiliate_id: affiliateId })
+    .where({ id: situationId, afiliado_id: affiliateId })
     .update(patch)
     .returning('*');
 
-  return situation;
+  return trx('prestador_affiliate_situations').select(situationColumns).where({ id: situation.id }).first();
 };
 
 const findActiveSituation = async (affiliateId, type, prestadorId, ignoreId = null, trx = db) => {
   const query = trx('prestador_affiliate_situations')
-    .where({ affiliate_id: affiliateId, type, active: true })
+    .where({ afiliado_id: affiliateId, tipo: type, activa: true })
     .andWhere((builder) => {
       builder.whereNull('prestador_id').orWhere('prestador_id', prestadorId);
     });
 
   if (ignoreId) query.whereNot('id', ignoreId);
-  return query.first();
+  return query.select(situationColumns).first();
 };
 
 const getAffiliateById = async (affiliateId, trx = db) => {
-  return trx('affiliates').where({ id: affiliateId }).first();
+  return trx('afiliados')
+    .select(
+      'id',
+      'nombre as first_name',
+      'apellido as last_name',
+      'nro_documento as document_number',
+      'nro_credencial as credencial_number',
+      'fecha_nacimiento as birth_date',
+      'activo as status'
+    )
+    .where({ id: affiliateId })
+    .first();
 };
 
 const createWorkflowAuditLog = async (trx, { prestadorId, affiliateId = null, userId = null, module, action, reason = null, metadata = {} }) => {
   await trx('prestador_workflow_audit_logs').insert({
     prestador_id: prestadorId,
-    affiliate_id: affiliateId,
-    user_id: userId,
-    module,
-    action,
-    reason: reason || null,
+    afiliado_id: affiliateId,
+    usuario_id: userId,
+    modulo: module,
+    accion: action,
+    motivo: reason || null,
     metadata: JSON.stringify(metadata || {}),
-    created_at: trx.fn.now()
+    creado_en: trx.fn.now()
   });
 };
 
 const deleteSituation = async (affiliateId, situationId, trx = db) => {
   const [deleted] = await trx('prestador_affiliate_situations')
-    .where({ id: situationId, affiliate_id: affiliateId })
+    .where({ id: situationId, afiliado_id: affiliateId })
     .del()
     .returning('*');
   return deleted;
@@ -335,14 +448,22 @@ const deleteSituation = async (affiliateId, situationId, trx = db) => {
 
 const getNotifications = async (prestadorId, trx = db) => {
   return trx('prestador_notifications')
+    .select(
+      '*',
+      'titulo as title',
+      'texto as text',
+      'clase_icono as icon_class',
+      'no_leida as unread',
+      'creado_en as created_at'
+    )
     .where({ prestador_id: prestadorId })
-    .orderBy('created_at', 'desc');
+    .orderBy('creado_en', 'desc');
 };
 
 const markNotificationAsRead = async (id, prestadorId, trx = db) => {
   const [notification] = await trx('prestador_notifications')
     .where({ id, prestador_id: prestadorId })
-    .update({ unread: false })
+    .update({ no_leida: false })
     .returning('*');
   return notification;
 };
@@ -352,23 +473,33 @@ const markNotificationAsRead = async (id, prestadorId, trx = db) => {
 const getAllRequestsForAdmin = async ({ status, page = 1, limit = 20 } = {}, trx = db) => {
   let base = trx('prestador_requests as pr')
     .leftJoin('prestadores as p', 'pr.prestador_id', 'p.id')
-    .leftJoin('affiliates as a', 'pr.affiliate_id', 'a.id')
+    .leftJoin('afiliados as a', 'pr.afiliado_id', 'a.id')
     .whereNotNull('pr.prestador_id');   // solo solicitudes iniciadas por prestador
-  if (status) base = base.where('pr.status', status);
+  if (status) base = base.where('pr.estado', status);
 
   const countResult = await base.clone().count('pr.id as count').first();
 
   const rows = await base.clone()
     .select(
       'pr.*',
-      'p.first_name as prestador_first_name',
-      'p.last_name as prestador_last_name',
+      'pr.afiliado_id as affiliate_id',
+      'pr.nro_solicitud as request_number',
+      'pr.afiliado_nombre as affiliate_name',
+      'pr.tipo as type',
+      'pr.estado as status',
+      'pr.fecha_solicitud as request_date',
+      'pr.descripcion as description',
+      'pr.motivo_estado as status_reason',
+      'pr.creado_en as created_at',
+      'pr.actualizado_en as updated_at',
+      'p.nombre as prestador_first_name',
+      'p.apellido as prestador_last_name',
       'p.cuit as prestador_cuit',
-      'a.first_name as affiliate_first_name',
-      'a.last_name as affiliate_last_name',
-      'a.credencial_number'
+      'a.nombre as affiliate_first_name',
+      'a.apellido as affiliate_last_name',
+      'a.nro_credencial as credencial_number'
     )
-    .orderBy('pr.created_at', 'desc')
+    .orderBy('pr.creado_en', 'desc')
     .limit(limit)
     .offset((page - 1) * limit);
 
@@ -377,20 +508,20 @@ const getAllRequestsForAdmin = async ({ status, page = 1, limit = 20 } = {}, trx
 
 const updateRequestStatusAdmin = async (id, { status, motivo, userId }, trx = db) => {
   const patch = {
-    status,
-    updated_at: trx.fn.now(),
-    status_reason: motivo || null,
+    estado: status,
+    actualizado_en: trx.fn.now(),
+    motivo_estado: motivo || null,
   };
   if (['Aprobada', 'Rechazada'].includes(status)) {
-    patch.resolved_by_user_id = userId;
-    patch.resolved_at = trx.fn.now();
+    patch.resuelto_por_usuario_id = userId;
+    patch.resuelto_en = trx.fn.now();
   }
   const [req] = await trx('prestador_requests')
     .where({ id })
     .whereNotNull('prestador_id')
     .update(patch)
     .returning('*');
-  return req;
+  return trx('prestador_requests').select(requestColumns).where({ id: req.id }).first();
 };
 
 module.exports = {

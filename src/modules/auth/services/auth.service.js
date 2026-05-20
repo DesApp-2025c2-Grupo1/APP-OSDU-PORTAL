@@ -8,6 +8,17 @@ const authRepository = require('../repository/auth.repository');
 
 //utils
 const { generateToken } = require('../utils/jwt.service');
+const { HttpError, sendError } = require('../../../utils/api-error');
+
+const PASSWORD_POLICY_MESSAGE = 'La contraseña debe tener al menos 8 caracteres, incluir letras y números, y no contener espacios';
+
+const validatePasswordPolicy = (password) => {
+    if (typeof password !== 'string' || !/^(?=.*[A-Za-zÁÉÍÓÚÜÑáéíóúüñ])(?=.*\d)\S{8,}$/.test(password)) {
+        throw new HttpError(400, PASSWORD_POLICY_MESSAGE, [
+            { field: 'nuevaPassword', message: PASSWORD_POLICY_MESSAGE }
+        ]);
+    }
+};
 
 const login = async (req, res) => {
     try {
@@ -21,6 +32,11 @@ const login = async (req, res) => {
 
         if (!user) {
             return res.status(401).json({ message: 'Credenciales inválidas' });
+        }
+
+        // Evitar que prestadores inicien sesión por el flujo general de email
+        if (user.role_name === 'PRESTADOR') {
+            return res.status(403).json({ message: 'Acceso denegado: los prestadores deben ingresar por su portal específico' });
         }
 
         // si el usuario es administrador no se valida su cuenta de afiliado
@@ -39,7 +55,9 @@ const login = async (req, res) => {
 
         const token = await generateToken(user);
 
-        res.cookie('token', token, {
+        const cookieName = user.role_name === 'ADMIN' ? 'token_admin' : 'token_affiliate';
+
+        res.cookie(cookieName, token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
@@ -52,11 +70,12 @@ const login = async (req, res) => {
                 id: user.id,
                 email: user.email,
                 role: user.role_name,
+                debeCambiarPassword: !!user.must_change_password,
                 must_change_password: !!user.must_change_password
             }
         });
     } catch (error) {
-        return res.status(500).json({ message: 'Error interno del servidor' });
+        return sendError(res, error, 'Error interno del servidor');
     }
 };
 
@@ -66,20 +85,20 @@ const validatePassword = async (password, hash) => {
 
 const changePassword = async (req, res) => {
     try {
-        const { newPassword } = req.body;
+        const newPassword = req.body.nuevaPassword || req.body.newPassword;
         const userId = req.user.id;
 
         if (!newPassword) {
             return res.status(400).json({ message: 'La nueva contraseña es requerida' });
         }
+        validatePasswordPolicy(newPassword);
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await authRepository.updateUserPassword(userId, hashedPassword);
 
         return res.status(200).json({ message: 'Contraseña actualizada correctamente' });
     } catch (error) {
-        console.error(error);
-        return res.status(500).json({ message: 'Error al cambiar la contraseña' });
+        return sendError(res, error, 'Error al cambiar la contraseña');
     }
 };
 
@@ -96,20 +115,27 @@ const me = async (req, res) => {
                 id: user.id,
                 email: user.email,
                 role: user.role_name,
+                debeCambiarPassword: !!user.must_change_password,
                 must_change_password: !!user.must_change_password
             }
         });
     } catch (error) {
-        return res.status(500).json({ message: 'Error interno del servidor' });
+        return sendError(res, error, 'Error interno del servidor');
     }
 };
 
+const COOKIE_OPTIONS = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+};
+
 const logout = async (req, res) => {
-    res.clearCookie('token', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
-    });
+    // Limpiar todas las cookies de sesión posibles para garantizar cierre total
+    res.clearCookie('token_admin', COOKIE_OPTIONS);
+    res.clearCookie('token_affiliate', COOKIE_OPTIONS);
+    res.clearCookie('token_prestador', COOKIE_OPTIONS);
+    res.clearCookie('token', COOKIE_OPTIONS); // cookie legacy por compatibilidad
 
     return res.status(200).json({ message: 'OK' });
 };
@@ -118,7 +144,7 @@ const registerInternal = async (email, trx) => {
     const user = await authRepository.getUserByUsername(email, trx);
 
     if (user) {
-        throw new Error('El usuario ya existe');
+        throw new HttpError(409, 'El correo electrónico ya se encuentra registrado');
     }
 
     const defaultPassword = process.env.DEFAULT_USER_PASSWORD || 'clave123';
@@ -137,5 +163,6 @@ module.exports = {
     me,
     logout,
     registerInternal,
-    changePassword
+    changePassword,
+    validatePasswordPolicy
 };

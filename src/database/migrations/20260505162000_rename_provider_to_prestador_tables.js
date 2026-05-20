@@ -32,11 +32,11 @@ exports.up = async function (knex) {
   await renameColumnIfNeeded(knex, 'prestador_clinical_history', 'provider_id', 'prestador_id');
 
   await knex('roles')
-    .where({ role_name: 'PROVEEDOR' })
+    .where({ nombre_rol: 'PROVEEDOR' })
     .update({
-      role_name: 'PRESTADOR',
-      role_description: 'Prestador del sistema',
-      updated_at: knex.fn.now(),
+      nombre_rol: 'PRESTADOR',
+      descripcion_rol: 'Prestador del sistema',
+      actualizado_en: knex.fn.now(),
     });
 };
 
@@ -46,11 +46,11 @@ exports.up = async function (knex) {
  */
 exports.down = async function (knex) {
   await knex('roles')
-    .where({ role_name: 'PRESTADOR' })
+    .where({ nombre_rol: 'PRESTADOR' })
     .update({
-      role_name: 'PROVEEDOR',
-      role_description: 'Proveedor del sistema',
-      updated_at: knex.fn.now(),
+      nombre_rol: 'PROVEEDOR',
+      descripcion_rol: 'Proveedor del sistema',
+      actualizado_en: knex.fn.now(),
     });
 
   await renameColumnIfNeeded(knex, 'prestador_requests', 'prestador_id', 'provider_id');

@@ -28,7 +28,7 @@ describe('Affiliates Endpoints', () => {
 
   describe('GET /affiliates/:id', () => {
     it('should return 200 with affiliate data when affiliate exists', async () => {
-      affiliateRepository.getAffiliateById.mockResolvedValue(mockAffiliate);
+      affiliateRepository.getAffiliateByIdentifier.mockResolvedValue(mockAffiliate);
 
       const res = await request(app)
         .get('/affiliates/1')
@@ -36,11 +36,11 @@ describe('Affiliates Endpoints', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.body).toHaveProperty('id', 1);
-      expect(res.body).toHaveProperty('email', 'juan@example.com');
+      expect(res.body.email).toEqual([{ idEmail: 0, email: 'juan@example.com' }]);
     });
 
     it('should return 404 when affiliate does not exist', async () => {
-      affiliateRepository.getAffiliateById.mockResolvedValue(null);
+      affiliateRepository.getAffiliateByIdentifier.mockResolvedValue(null);
 
       const res = await request(app)
         .get('/affiliates/99999')

@@ -7,41 +7,41 @@ exports.up = async function (knex) {
     table.integer('agenda_id').unsigned().references('id').inTable('agendas').onDelete('SET NULL');
     table.integer('especialidad_id').unsigned().references('id').inTable('especialidades').onDelete('SET NULL');
     table.integer('lugar_id').unsigned().references('id').inTable('lugares_atencion').onDelete('SET NULL');
-    table.string('status', 30).notNullable().defaultTo('reservado');
-    table.text('cancellation_reason');
-    table.timestamp('attended_at');
+    table.string('estado', 30).notNullable().defaultTo('reservado');
+    table.text('motivo_cancelacion');
+    table.timestamp('atendido_en');
   });
 
   await knex.schema.alterTable('prestador_requests', function (table) {
-    table.text('status_reason');
-    table.integer('resolved_by_user_id').unsigned().references('id').inTable('users').onDelete('SET NULL');
-    table.timestamp('resolved_at');
+    table.text('motivo_estado');
+    table.integer('resuelto_por_usuario_id').unsigned().references('id').inTable('usuarios').onDelete('SET NULL');
+    table.timestamp('resuelto_en');
   });
 
   await knex.schema.alterTable('prestador_affiliate_situations', function (table) {
     table.integer('prestador_id').unsigned().references('id').inTable('prestadores').onDelete('SET NULL');
-    table.text('observation');
-    table.text('end_reason');
+    table.text('observacion');
+    table.text('motivo_finalizacion');
   });
 
   await knex.schema.alterTable('prestador_clinical_history', function (table) {
-    table.integer('appointment_id').unsigned().references('id').inTable('prestador_appointments').onDelete('SET NULL');
+    table.integer('turno_id').unsigned().references('id').inTable('prestador_appointments').onDelete('SET NULL');
   });
 
   await knex.schema.createTable('prestador_workflow_audit_logs', function (table) {
     table.increments('id').primary();
     table.integer('prestador_id').unsigned().references('id').inTable('prestadores').onDelete('SET NULL');
-    table.integer('affiliate_id').unsigned().references('id').inTable('affiliates').onDelete('SET NULL');
-    table.integer('user_id').unsigned().references('id').inTable('users').onDelete('SET NULL');
-    table.string('module', 40).notNullable();
-    table.string('action', 60).notNullable();
-    table.text('reason');
+    table.integer('afiliado_id').unsigned().references('id').inTable('afiliados').onDelete('SET NULL');
+    table.integer('usuario_id').unsigned().references('id').inTable('usuarios').onDelete('SET NULL');
+    table.string('modulo', 40).notNullable();
+    table.string('accion', 60).notNullable();
+    table.text('motivo');
     table.jsonb('metadata').notNullable().defaultTo('{}');
-    table.timestamp('created_at').defaultTo(knex.fn.now());
+    table.timestamp('creado_en').defaultTo(knex.fn.now());
 
-    table.index(['module', 'action']);
-    table.index(['prestador_id', 'created_at']);
-    table.index(['affiliate_id', 'created_at']);
+    table.index(['modulo', 'accion']);
+    table.index(['prestador_id', 'creado_en']);
+    table.index(['afiliado_id', 'creado_en']);
   });
 };
 
@@ -53,25 +53,25 @@ exports.down = async function (knex) {
   await knex.schema.dropTableIfExists('prestador_workflow_audit_logs');
 
   await knex.schema.alterTable('prestador_clinical_history', function (table) {
-    table.dropColumn('appointment_id');
+    table.dropColumn('turno_id');
   });
 
   await knex.schema.alterTable('prestador_affiliate_situations', function (table) {
-    table.dropColumn('end_reason');
-    table.dropColumn('observation');
+    table.dropColumn('motivo_finalizacion');
+    table.dropColumn('observacion');
     table.dropColumn('prestador_id');
   });
 
   await knex.schema.alterTable('prestador_requests', function (table) {
-    table.dropColumn('resolved_at');
-    table.dropColumn('resolved_by_user_id');
-    table.dropColumn('status_reason');
+    table.dropColumn('resuelto_en');
+    table.dropColumn('resuelto_por_usuario_id');
+    table.dropColumn('motivo_estado');
   });
 
   await knex.schema.alterTable('prestador_appointments', function (table) {
-    table.dropColumn('attended_at');
-    table.dropColumn('cancellation_reason');
-    table.dropColumn('status');
+    table.dropColumn('atendido_en');
+    table.dropColumn('motivo_cancelacion');
+    table.dropColumn('estado');
     table.dropColumn('lugar_id');
     table.dropColumn('especialidad_id');
     table.dropColumn('agenda_id');

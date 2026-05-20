@@ -34,8 +34,8 @@ const parseJsonArray = (value) => {
 const splitName = (nombreCompleto) => {
   const parts = String(nombreCompleto || '').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
   return {
-    first_name: parts[0] || '',
-    last_name: parts.slice(1).join(' ')
+    nombre: parts[0] || '',
+    apellido: parts.slice(1).join(' ')
   };
 };
 
@@ -55,7 +55,7 @@ const sendError = (res, error, fallbackMessage) => {
   });
 };
 
-const getProviderState = (p) => p.estado || (p.status ? 'activo' : 'baja');
+const getProviderState = (p) => p.estado || (p.activo ? 'activo' : 'baja');
 
 const assertValidState = (estado) => {
   if (!providerStates.has(estado)) {
@@ -157,12 +157,12 @@ const validateDuplicatesForCreate = async (trx, { cleanCuit, mails, tipoPrestado
   const existingPrestador = await trx('prestadores').where({ cuit: cleanCuit }).first();
   if (existingPrestador) throw new HttpError(409, 'Ya existe un prestador con ese CUIT/CUIL');
 
-  const existingUser = await trx('users').whereIn('email', mails).first();
+  const existingUser = await trx('usuarios').whereIn('email', mails).first();
   if (existingUser) throw new HttpError(409, 'Ya existe un usuario con ese email');
 
   if (tipoPrestador === 'centro_medico') {
     const existingCenter = await trx('prestadores')
-      .whereRaw('LOWER(first_name || CASE WHEN last_name = \'\' THEN \'\' ELSE \' \' || last_name END) = ?', [nombreCompleto.toLowerCase()])
+      .whereRaw('LOWER(nombre || CASE WHEN apellido = \'\' THEN \'\' ELSE \' \' || apellido END) = ?', [nombreCompleto.toLowerCase()])
       .andWhere({ tipo_prestador: 'centro_medico' })
       .first();
     if (existingCenter) throw new HttpError(409, 'Ya existe un centro medico con ese nombre');
@@ -175,7 +175,7 @@ const findPrestadorByCuitOrThrow = async (trx, cuit) => {
   return p;
 };
 
-const providerDisplayName = (p) => `${p.first_name} ${p.last_name}`.trim();
+const providerDisplayName = (p) => `${p.nombre} ${p.apellido}`.trim();
 
 const getAdminUserId = (req) => req.user?.id || req.user?.id_usuario || req.user?.userId || null;
 
@@ -195,11 +195,11 @@ const requireReason = (value, actionLabel) => {
 const createAuditLog = async (trx, { prestadorId, adminUserId, action, reason = null, metadata = {} }) => {
   await trx('prestador_audit_logs').insert({
     prestador_id: prestadorId,
-    admin_user_id: adminUserId,
-    action,
-    reason: reason || null,
+    admin_usuario_id: adminUserId,
+    accion: action,
+    motivo: reason || null,
     metadata: JSON.stringify(metadata || {}),
-    created_at: trx.fn.now()
+    creado_en: trx.fn.now()
   });
 };
 
@@ -234,30 +234,30 @@ const serializePrestador = async (p, trx = db, { includeDetail = false } = {}) =
       .select('especialidades.id', 'especialidades.nombre')
       .orderBy('especialidades.nombre'),
     p.centro_medico_id ? trx('prestadores').where('id', p.centro_medico_id).first() : Promise.resolve(null),
-    trx('users')
-      .leftJoin('user_roles', 'users.id', 'user_roles.user_id')
-      .leftJoin('roles', 'user_roles.role_id', 'roles.id')
-      .where('users.id', p.user_id)
-      .select('users.id', 'users.email', 'users.must_change_password', 'roles.role_name')
+    trx('usuarios')
+      .leftJoin('usuarios_roles', 'usuarios.id', 'usuarios_roles.usuario_id')
+      .leftJoin('roles', 'usuarios_roles.rol_id', 'roles.id')
+      .where('usuarios.id', p.usuario_id)
+      .select('usuarios.id', 'usuarios.email', 'usuarios.debe_cambiar_password as must_change_password', 'roles.nombre_rol as role_name')
       .first()
   ]);
 
   const base = {
     id: p.id,
-    userId: p.user_id,
+    userId: p.usuario_id,
     cuitCuil: p.cuit,
-    nombreCompleto: `${p.first_name} ${p.last_name}`.trim(),
+    nombreCompleto: `${p.nombre} ${p.apellido}`.trim(),
     tipoPrestador: p.tipo_prestador || 'profesional',
     estado: getProviderState(p),
     status: getProviderState(p) === 'activo',
-    deactivatedAt: p.deactivated_at,
-    deactivationReason: p.deactivation_reason,
-    suspendedAt: p.suspended_at,
-    suspensionReason: p.suspension_reason,
+    deactivatedAt: p.baja_en,
+    deactivationReason: p.motivo_baja,
+    suspendedAt: p.suspendido_en,
+    suspensionReason: p.motivo_suspension,
     telefonos: parseJsonArray(p.telefonos),
     mails: parseJsonArray(p.mails),
     emailPrincipal: p.email || parseJsonArray(p.mails)[0] || '',
-    telefonoPrincipal: p.phone || parseJsonArray(p.telefonos)[0] || '',
+    telefonoPrincipal: p.telefono || parseJsonArray(p.telefonos)[0] || '',
     especialidades: specialties,
     lugaresAtencion: places.map((lugar) => ({
       idLugar: lugar.id,
@@ -271,18 +271,18 @@ const serializePrestador = async (p, trx = db, { includeDetail = false } = {}) =
     centroMedico: centro ? {
       id: centro.id,
       cuitCuil: centro.cuit,
-      nombreCompleto: `${centro.first_name} ${centro.last_name}`.trim()
+      nombreCompleto: `${centro.nombre} ${centro.apellido}`.trim()
     } : null,
     cuenta: account ? {
       id: account.id,
       email: account.email,
       rol: account.role_name,
       debeCambiarPassword: !!account.must_change_password,
-      credencialesEnviadasAt: p.credentials_sent_at,
-      passwordReseteadaAt: p.password_reset_at
+      credencialesEnviadasAt: p.credenciales_enviadas_en,
+      passwordReseteadaAt: p.contrasenia_reseteada_en
     } : null,
-    createdAt: p.created_at,
-    updatedAt: p.updated_at
+    createdAt: p.creado_en,
+    updatedAt: p.actualizado_en
   };
 
   if (!includeDetail) return base;
@@ -345,7 +345,7 @@ const buildFilteredQuery = (queryParams) => {
   }
 
   if (nombre) {
-    query.whereRaw("LOWER(prestadores.first_name || ' ' || prestadores.last_name) LIKE ?", [`%${String(nombre).toLowerCase()}%`]);
+    query.whereRaw("LOWER(prestadores.nombre || ' ' || prestadores.apellido) LIKE ?", [`%${String(nombre).toLowerCase()}%`]);
   }
 
   if (cuitCuil) query.where('prestadores.cuit', 'like', `%${normalizeCuit(cuitCuil)}%`);
@@ -368,7 +368,7 @@ const buildFilteredQuery = (queryParams) => {
     const cleanSearch = normalizeCuit(search);
     query.where((builder) => {
       builder
-        .whereRaw("LOWER(prestadores.first_name || ' ' || prestadores.last_name) LIKE ?", [text])
+        .whereRaw("LOWER(prestadores.nombre || ' ' || prestadores.apellido) LIKE ?", [text])
         .orWhereRaw('LOWER(prestadores.email) LIKE ?', [text])
         .orWhereRaw('LOWER(especialidades.nombre) LIKE ?', [text])
         .orWhereRaw('LOWER(lugares_atencion.localidad) LIKE ?', [text]);
@@ -376,7 +376,7 @@ const buildFilteredQuery = (queryParams) => {
     });
   }
 
-  return query.orderBy('prestadores.created_at', 'desc').orderBy('prestadores.id', 'desc');
+  return query.orderBy('prestadores.creado_en', 'desc').orderBy('prestadores.id', 'desc');
 };
 
 const getAll = async (req, res) => {
@@ -426,7 +426,7 @@ const getByCuit = async (req, res) => {
 const getOwnProfile = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?.id_usuario || req.user?.userId;
-    const p = await db('prestadores').where('user_id', userId).first();
+    const p = await db('prestadores').where('usuario_id', userId).first();
     if (!p) return res.status(404).json({ error: 'Prestador no encontrado', message: 'Prestador no encontrado' });
 
     const result = await serializePrestador(p, db, { includeDetail: true });
@@ -445,36 +445,36 @@ const create = async (req, res) => {
       const centroMedicoDbId = validated.tipoPrestador === 'profesional'
         ? await resolveCentroMedicoId(trx, req.body.centroMedicoId)
         : null;
-      const { first_name, last_name } = splitName(validated.nombreCompleto);
+      const { nombre, apellido } = splitName(validated.nombreCompleto);
       const hash = await bcrypt.hash(validated.cleanCuit, 10);
 
-      const [newUser] = await trx('users').insert({
+      const [newUser] = await trx('usuarios').insert({
         email: validated.mails[0],
-        password: hash,
-        must_change_password: true
+        contrasenia: hash,
+        debe_cambiar_password: true
       }).returning('id');
       const userId = newUser.id || newUser;
 
-      const role = await trx('roles').where({ role_name: 'PRESTADOR' }).first();
+      const role = await trx('roles').where({ nombre_rol: 'PRESTADOR' }).first();
       if (!role) throw new HttpError(422, 'Rol PRESTADOR no configurado');
-      await trx('user_roles').insert({ user_id: userId, role_id: role.id });
+      await trx('usuarios_roles').insert({ usuario_id: userId, rol_id: role.id });
 
       const [newPrestador] = await trx('prestadores').insert({
-        user_id: userId,
+        usuario_id: userId,
         cuit: validated.cleanCuit,
-        first_name,
-        last_name,
-        document_number: validated.cleanCuit.slice(2, -1),
+        nombre,
+        apellido,
+        nro_documento: validated.cleanCuit.slice(2, -1),
         email: validated.mails[0],
-        phone: validated.telefonos[0],
+        telefono: validated.telefonos[0],
         tipo_prestador: validated.tipoPrestador,
         centro_medico_id: centroMedicoDbId,
         telefonos: JSON.stringify(validated.telefonos),
         mails: JSON.stringify(validated.mails),
-        specialty: '',
-        status: true,
+        especialidad: '',
+        activo: true,
         estado: 'activo',
-        updated_at: trx.fn.now()
+        actualizado_en: trx.fn.now()
       }).returning('*');
 
       const prestadorId = newPrestador.id;
@@ -527,13 +527,13 @@ const update = async (req, res) => {
       if (!p) throw new HttpError(404, 'Prestador no encontrado');
 
       const validated = validateProviderPayload(req.body, { partial: true });
-      const updateData = { updated_at: trx.fn.now() };
+      const updateData = { actualizado_en: trx.fn.now() };
 
       if (req.body.cuitCuil !== undefined && validated.cleanCuit !== p.cuit) {
         const duplicate = await trx('prestadores').where({ cuit: validated.cleanCuit }).whereNot('id', p.id).first();
         if (duplicate) throw new HttpError(409, 'Ya existe un prestador con ese CUIT/CUIL');
         updateData.cuit = validated.cleanCuit;
-        updateData.document_number = validated.cleanCuit.slice(2, -1);
+        updateData.nro_documento = validated.cleanCuit.slice(2, -1);
       }
 
       if (req.body.nombreCompleto !== undefined) {
@@ -544,22 +544,22 @@ const update = async (req, res) => {
       if (req.body.estado !== undefined) {
         assertValidState(req.body.estado);
         updateData.estado = req.body.estado;
-        updateData.status = req.body.estado === 'activo';
+        updateData.activo = req.body.estado === 'activo';
       }
       if (req.body.centroMedicoId !== undefined) updateData.centro_medico_id = await resolveCentroMedicoId(trx, req.body.centroMedicoId);
       if (validated.tipoPrestador === 'centro_medico') updateData.centro_medico_id = null;
 
       if (req.body.mails !== undefined) {
-        const existingUser = await trx('users').whereIn('email', validated.mails).whereNot('id', p.user_id).first();
+        const existingUser = await trx('usuarios').whereIn('email', validated.mails).whereNot('id', p.usuario_id).first();
         if (existingUser) throw new HttpError(409, 'Ya existe un usuario con ese email');
         updateData.mails = JSON.stringify(validated.mails);
         updateData.email = validated.mails[0];
-        await trx('users').where({ id: p.user_id }).update({ email: validated.mails[0], updated_at: trx.fn.now() });
+        await trx('usuarios').where({ id: p.usuario_id }).update({ email: validated.mails[0], actualizado_en: trx.fn.now() });
       }
 
       if (req.body.telefonos !== undefined) {
         updateData.telefonos = JSON.stringify(validated.telefonos);
-        updateData.phone = validated.telefonos[0];
+        updateData.telefono = validated.telefonos[0];
       }
 
       await trx('prestadores').where('id', p.id).update(updateData);
@@ -643,10 +643,10 @@ const remove = async (req, res) => {
       const p = await findPrestadorByCuitOrThrow(trx, req.params.cuit);
       await trx('prestadores').where('id', p.id).update({
         estado: 'baja',
-        status: false,
-        deactivated_at: trx.fn.now(),
-        deactivation_reason: motivo,
-        updated_at: trx.fn.now()
+        activo: false,
+        baja_en: trx.fn.now(),
+        motivo_baja: motivo,
+        actualizado_en: trx.fn.now()
       });
       await createAuditLog(trx, {
         prestadorId: p.id,
@@ -668,10 +668,10 @@ const suspend = async (req, res) => {
       const p = await findPrestadorByCuitOrThrow(trx, req.params.cuit);
       await trx('prestadores').where('id', p.id).update({
         estado: 'suspendido',
-        status: false,
-        suspended_at: trx.fn.now(),
-        suspension_reason: motivo,
-        updated_at: trx.fn.now()
+        activo: false,
+        suspendido_en: trx.fn.now(),
+        motivo_suspension: motivo,
+        actualizado_en: trx.fn.now()
       });
       await createAuditLog(trx, {
         prestadorId: p.id,
@@ -694,12 +694,12 @@ const reactivate = async (req, res) => {
       const p = await findPrestadorByCuitOrThrow(trx, req.params.cuit);
       await trx('prestadores').where('id', p.id).update({
         estado: 'activo',
-        status: true,
-        deactivated_at: null,
-        deactivation_reason: null,
-        suspended_at: null,
-        suspension_reason: null,
-        updated_at: trx.fn.now()
+        activo: true,
+        baja_en: null,
+        motivo_baja: null,
+        suspendido_en: null,
+        motivo_suspension: null,
+        actualizado_en: trx.fn.now()
       });
       await createAuditLog(trx, {
         prestadorId: p.id,
@@ -720,9 +720,9 @@ const forcePasswordChange = async (req, res) => {
     const motivo = normalizeReason(req.body?.motivo);
     const updated = await db.transaction(async (trx) => {
       const p = await findPrestadorByCuitOrThrow(trx, req.params.cuit);
-      await trx('users').where({ id: p.user_id }).update({
-        must_change_password: true,
-        updated_at: trx.fn.now()
+      await trx('usuarios').where({ id: p.usuario_id }).update({
+        debe_cambiar_password: true,
+        actualizado_en: trx.fn.now()
       });
       await createAuditLog(trx, {
         prestadorId: p.id,
@@ -748,15 +748,15 @@ const resetPassword = async (req, res) => {
     if (!email) throw new HttpError(422, 'El prestador no tiene email configurado');
 
     await db.transaction(async (trx) => {
-      await trx('users').where({ id: p.user_id }).update({
-        password: hash,
-        must_change_password: true,
-        updated_at: trx.fn.now()
+      await trx('usuarios').where({ id: p.usuario_id }).update({
+        contrasenia: hash,
+        debe_cambiar_password: true,
+        actualizado_en: trx.fn.now()
       });
       await trx('prestadores').where({ id: p.id }).update({
-        credentials_sent_at: trx.fn.now(),
-        password_reset_at: trx.fn.now(),
-        updated_at: trx.fn.now()
+        credenciales_enviadas_en: trx.fn.now(),
+        contrasenia_reseteada_en: trx.fn.now(),
+        actualizado_en: trx.fn.now()
       });
       await createAuditLog(trx, {
         prestadorId: p.id,
@@ -779,7 +779,7 @@ const resetPassword = async (req, res) => {
       ...(process.env.NODE_ENV === 'production' ? {} : { temporaryPassword })
     });
   } catch (error) {
-    return sendError(res, error, 'Error reset provider password:');
+    return sendError(res, error, 'Error reset provider contrasenia:');
   }
 };
 
@@ -798,8 +798,8 @@ const resendCredentials = async (req, res) => {
 
     await db.transaction(async (trx) => {
       await trx('prestadores').where({ id: p.id }).update({
-        credentials_sent_at: trx.fn.now(),
-        updated_at: trx.fn.now()
+        credenciales_enviadas_en: trx.fn.now(),
+        actualizado_en: trx.fn.now()
       });
       await createAuditLog(trx, {
         prestadorId: p.id,
@@ -819,28 +819,28 @@ const getAuditLogs = async (req, res) => {
   try {
     const p = await findPrestadorByCuitOrThrow(db, req.params.cuit);
     const logs = await db('prestador_audit_logs')
-      .leftJoin('users', 'prestador_audit_logs.admin_user_id', 'users.id')
+      .leftJoin('usuarios', 'prestador_audit_logs.admin_usuario_id', 'usuarios.id')
       .where('prestador_audit_logs.prestador_id', p.id)
       .select(
         'prestador_audit_logs.id',
-        'prestador_audit_logs.action',
-        'prestador_audit_logs.reason',
+        'prestador_audit_logs.accion',
+        'prestador_audit_logs.motivo',
         'prestador_audit_logs.metadata',
-        'prestador_audit_logs.created_at',
-        'prestador_audit_logs.admin_user_id',
-        'users.email as admin_email'
+        'prestador_audit_logs.creado_en',
+        'prestador_audit_logs.admin_usuario_id',
+        'usuarios.email as admin_email'
       )
-      .orderBy('prestador_audit_logs.created_at', 'desc')
+      .orderBy('prestador_audit_logs.creado_en', 'desc')
       .orderBy('prestador_audit_logs.id', 'desc');
 
     return res.status(200).json(logs.map((log) => ({
       id: log.id,
-      action: log.action,
-      reason: log.reason,
+      action: log.accion,
+      reason: log.motivo,
       metadata: typeof log.metadata === 'string' ? JSON.parse(log.metadata || '{}') : log.metadata,
-      createdAt: log.created_at,
-      admin: log.admin_user_id ? {
-        id: log.admin_user_id,
+      createdAt: log.creado_en,
+      admin: log.admin_usuario_id ? {
+        id: log.admin_usuario_id,
         email: log.admin_email
       } : null
     })));

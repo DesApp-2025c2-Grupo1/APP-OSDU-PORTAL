@@ -12,6 +12,7 @@ const prestadoresRoute = require('./modules/prestadores/routes/prestadores.route
 const agendasRoute = require('./modules/agendas/routes/agendas.route');
 const plansRoute = require('./modules/plans/routes/plans.route');
 const specialtiesRoute = require('./modules/specialties/routes/specialties.route');
+const reportsRoute = require('./modules/reports/reports.route');
 const path = require('path');
 
 const app = express();
@@ -50,6 +51,7 @@ app.use('/providers', prestadoresRoute);
 app.use('/agendas', agendasRoute);
 app.use('/plans', plansRoute);
 app.use('/specialties', specialtiesRoute);
+app.use('/reports', reportsRoute);
 // app.use('/admin', adminRoutes);
 
 module.exports = app;

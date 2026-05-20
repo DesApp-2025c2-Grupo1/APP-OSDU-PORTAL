@@ -4,9 +4,9 @@
  */
 exports.up = async function (knex) {
   await knex.schema.alterTable('prestador_requests', function (table) {
-    table.string('attachment_name', 255);
-    table.string('attachment_type', 100);
-    table.integer('attachment_size');
+    table.string('adjunto_nombre', 255);
+    table.string('adjunto_tipo', 100);
+    table.integer('adjunto_tamanio');
   });
 };
 
@@ -16,8 +16,8 @@ exports.up = async function (knex) {
  */
 exports.down = async function (knex) {
   await knex.schema.alterTable('prestador_requests', function (table) {
-    table.dropColumn('attachment_size');
-    table.dropColumn('attachment_type');
-    table.dropColumn('attachment_name');
+    table.dropColumn('adjunto_tamanio');
+    table.dropColumn('adjunto_tipo');
+    table.dropColumn('adjunto_nombre');
   });
 };

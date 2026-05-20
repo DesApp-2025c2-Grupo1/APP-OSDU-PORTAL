@@ -101,7 +101,7 @@ const serializeActivity = (request) => ({
 
 const serializeAppointment = (appointment) => ({
   id: appointment.id,
-  afiliadoId: appointment.affiliate_id,
+  afiliadoId: appointment.afiliado_id || appointment.affiliate_id,
   agendaId: appointment.agenda_id,
   especialidadId: appointment.especialidad_id,
   lugarId: appointment.lugar_id,
@@ -231,12 +231,12 @@ const login = async (req, res) => {
     }
 
     const token = await generateToken({
-      id: prestador.user_id,
+      id: prestador.usuario_id,
       email: prestador.user_email,
       role_name: prestador.role_name,
     });
 
-    res.cookie('token', token, {
+    res.cookie('token_prestador', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -247,13 +247,14 @@ const login = async (req, res) => {
       message: 'OK',
       user: {
         id: prestador.id,
-        id_usuario: prestador.user_id,
+        id_usuario: prestador.usuario_id,
         nombre: prestador.first_name,
         apellido: prestador.last_name,
         dni: prestador.document_number || '',
         email: prestador.email,
         cuit: prestador.cuit,
         role: prestador.role_name,
+        debeCambiarPassword: !!prestador.must_change_password,
         must_change_password: !!prestador.must_change_password,
       },
     });
@@ -726,9 +727,9 @@ const serializeRequestAdmin = (r) => ({
 
 const adminGetSolicitudes = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { estado, status, page = 1, limit = 20 } = req.query;
     const { rows, total } = await prestadoresRepository.getAllRequestsForAdmin({
-      status: status || null,
+      status: estado || status || null,
       page: Number(page),
       limit: Number(limit),
     });
