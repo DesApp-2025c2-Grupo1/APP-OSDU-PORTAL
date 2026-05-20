@@ -17,10 +17,19 @@ const path = require('path');
 const app = express();
 
 app.use(helmet());
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+    : [];
+
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return callback(null, true);
+        // En desarrollo también acepta localhost
+        if (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
+            return callback(null, true);
+        }
+        if (allowedOrigins.includes(origin)) return callback(null, true);
         return callback(new Error('Origen no permitido por CORS'));
     },
     credentials: true
@@ -51,5 +60,12 @@ app.use('/agendas', agendasRoute);
 app.use('/plans', plansRoute);
 app.use('/specialties', specialtiesRoute);
 // app.use('/admin', adminRoutes);
+
+// Manejador global de errores — captura lo que se escape de los try/catch
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+    console.error('[UNHANDLED ERROR]', err);
+    const status = err.status || 500;
+    return res.status(status).json({ message: err.message || 'Error interno del servidor' });
+});
 
 module.exports = app;

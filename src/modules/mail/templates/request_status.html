@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Cuenta activada</title>
+  <title>Estado de solicitud</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:40px 0;">
@@ -18,15 +18,27 @@
           </tr>
           <tr>
             <td style="padding:40px 40px 32px;">
-              <h2 style="margin:0 0 16px;color:#1a5276;font-size:20px;">¡Tu cuenta fue activada!</h2>
+              <h2 style="margin:0 0 16px;color:#1a5276;font-size:20px;">Actualización de solicitud</h2>
               <p style="margin:0 0 16px;color:#444;font-size:15px;line-height:1.6;">
-                Hola <strong>{{name}}</strong>, tu cuenta en el Portal UNAHUR ha sido <strong>activada</strong> por un administrador.
+                Hola <strong>{{name}}</strong>, tu solicitud <strong>#{{requestNumber}}</strong>
+                de tipo <strong>{{type}}</strong> fue actualizada:
               </p>
-              <p style="margin:0 0 16px;color:#444;font-size:15px;line-height:1.6;">
-                Ya podés acceder a todos los servicios disponibles ingresando con tus credenciales.
-              </p>
+              <table width="100%" cellpadding="8" cellspacing="0" style="background:#eaf2f8;border-radius:6px;margin:16px 0 24px;">
+                <tr>
+                  <td style="color:#1a5276;font-size:14px;font-weight:bold;width:120px;">Estado:</td>
+                  <td style="color:#444;font-size:14px;">{{status}}</td>
+                </tr>
+                <tr>
+                  <td style="color:#1a5276;font-size:14px;font-weight:bold;">Motivo:</td>
+                  <td style="color:#444;font-size:14px;">{{motivo}}</td>
+                </tr>
+                <tr>
+                  <td style="color:#1a5276;font-size:14px;font-weight:bold;">Fecha:</td>
+                  <td style="color:#444;font-size:14px;">{{date}}</td>
+                </tr>
+              </table>
               <p style="margin:0;color:#888;font-size:13px;">
-                Si tenés inconvenientes para ingresar, contactá al soporte de la obra social.
+                Podés consultar el detalle completo ingresando al portal.
               </p>
             </td>
           </tr>

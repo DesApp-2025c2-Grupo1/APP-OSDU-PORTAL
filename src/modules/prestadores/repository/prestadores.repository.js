@@ -113,11 +113,12 @@ const getAppointmentsByDate = async (prestadorId, date, trx = db) => {
 };
 
 const getAppointmentsByMonth = async (prestadorId, year, month, trx = db) => {
-  // SQLite and Postgres support might vary for native dates, but we can just use string LIKE for `YYYY-MM-%` since `appointment_date` is likely standard YYYY-MM-DD
-  const prefix = `${year}-${String(month).padStart(2, '0')}-%`;
+  const paddedMonth = String(month).padStart(2, '0');
+  // Usamos EXTRACT para compatibilidad con PostgreSQL (campos DATE no soportan LIKE)
   return trx('prestador_appointments')
     .where('prestador_id', prestadorId)
-    .andWhere('appointment_date', 'like', prefix)
+    .whereRaw('EXTRACT(YEAR FROM appointment_date) = ?', [Number(year)])
+    .whereRaw('EXTRACT(MONTH FROM appointment_date) = ?', [Number(paddedMonth)])
     .select('appointment_date')
     .groupBy('appointment_date');
 };
@@ -347,7 +348,21 @@ const markNotificationAsRead = async (id, prestadorId, trx = db) => {
   return notification;
 };
 
+const hasAppointmentWithAffiliate = async (prestadorId, affiliateId, trx = db) => {
+  return trx('prestador_appointments')
+    .where({ affiliate_id: affiliateId, prestador_id: prestadorId })
+    .first();
+};
+
+const getSituationById = async (situationId, trx = db) => {
+  return trx('prestador_affiliate_situations')
+    .where({ id: situationId })
+    .first();
+};
+
 module.exports = {
+  hasAppointmentWithAffiliate,
+  getSituationById,
   getPrestadorByCuit,
   getPrestadorByUserId,
   getDefaultPrestador,

@@ -66,6 +66,17 @@ const assertValidState = (estado) => {
   }
 };
 
+const validateOwnCuitAccess = async (req, targetCuit) => {
+  const role = req.user?.role || req.user?.role_name;
+  if (role === 'PRESTADOR') {
+    const userId = req.user?.id || req.user?.id_usuario || req.user?.userId;
+    const p = await db('prestadores').where('user_id', userId).first();
+    if (!p || normalizeCuit(p.cuit) !== normalizeCuit(targetCuit)) {
+      throw new HttpError(403, 'Acceso denegado. No tienes permisos para acceder a los datos de este prestador.');
+    }
+  }
+};
+
 const validateProviderPayload = (payload, { partial = false } = {}) => {
   const errors = [];
   const requiredErrors = [];
@@ -413,6 +424,7 @@ const getAll = async (req, res) => {
 const getByCuit = async (req, res) => {
   try {
     const { cuit } = req.params;
+    await validateOwnCuitAccess(req, cuit);
     const p = await db('prestadores').where('cuit', normalizeCuit(cuit)).first();
     if (!p) return res.status(404).json({ error: 'Prestador no encontrado', message: 'Prestador no encontrado' });
 
@@ -853,6 +865,7 @@ const getAgendasBySpecialty = async (req, res) => {
   try {
     const { cuit } = req.params;
     const { specialtyId } = req.query;
+    await validateOwnCuitAccess(req, cuit);
     const p = await db('prestadores').where('cuit', normalizeCuit(cuit)).first();
     if (!p) return res.status(404).json({ error: 'Prestador no encontrado', message: 'Prestador no encontrado' });
 
@@ -869,6 +882,7 @@ const getAgendasBySpecialty = async (req, res) => {
 const getAgendasByPlaces = async (req, res) => {
   try {
     const { cuit } = req.params;
+    await validateOwnCuitAccess(req, cuit);
     const p = await db('prestadores').where('cuit', normalizeCuit(cuit)).first();
     if (!p) return res.status(404).json({ error: 'Prestador no encontrado', message: 'Prestador no encontrado' });
 

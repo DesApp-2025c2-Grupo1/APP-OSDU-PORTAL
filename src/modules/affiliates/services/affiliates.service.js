@@ -1,7 +1,7 @@
 const affiliateRepository = require('../repository/affiliate.repository');
 const authService = require('../../auth/services/auth.service');
 const affiliateModel = require('../model/affiliate.model');
-const mailService = require('../../mail/mail.service');
+const { notify } = require('../../mail/notification.service');
 const { affiliateSchema } = require('../utils/validation');
 const db = require('../../../database/db');
 const { findAgendaForAppointment, hasOverlappingAppointment } = require('../../prestadores/repository/prestadores.repository');
@@ -38,25 +38,21 @@ const DIA_MAP = {
 const normalizeDia = (d) => typeof d === 'number' ? d : (DIA_MAP[d] ?? -1);
 
 const createAffiliate = async (req, res) => {
-  // If family_group is string (sent from FormData), parse it
   if (req.body.family_group && typeof req.body.family_group === 'string') {
     try {
       req.body.family_group = JSON.parse(req.body.family_group);
     } catch (e) {
-      // Ignore if not parseable, Joi will handle validation error
+      // Joi manejará el error de validación
     }
   }
 
-  // 1. Validar el input
   const { error, value } = affiliateSchema.validate(req.body);
   if (error) {
-    console.error("Joi Validation Error:", error.details);
     return res.status(400).json({ message: 'Datos inválidos', details: error.details });
   }
 
   const affiliate = new affiliateModel(value);
 
-  // Attach document paths if uploaded
   if (req.files) {
     if (req.files.dni_document && req.files.dni_document[0]) {
       affiliate.dni_document_path = `/uploads/${req.files.dni_document[0].filename}`;
@@ -66,7 +62,6 @@ const createAffiliate = async (req, res) => {
     }
   }
 
-  // 2. Iniciar Transacción
   const trx = await db.transaction();
 
   try {
@@ -76,8 +71,8 @@ const createAffiliate = async (req, res) => {
     }
 
     const credencialNumber = await generateCredencialNumber(trx);
-    
-    // Crear usuario vinculado en la misma transacción
+
+    // registerInternal ya NO llama a notify — lo hacemos aquí después del commit
     const user = await authService.registerInternal(affiliate.email, trx);
 
     affiliate.user_id = user.id;
@@ -86,128 +81,127 @@ const createAffiliate = async (req, res) => {
     const newAffiliate = await affiliateRepository.createAffiliate(affiliate, trx);
 
     await trx.commit();
+
+    // Notificación DESPUÉS del commit para no contaminar la transacción
+    await notify('WELCOME', affiliate.email, {
+      name: value.first_name,
+    });
+
     return res.status(200).json({ id: newAffiliate.id, message: 'Afiliado creado exitosamente' });
 
   } catch (error) {
     await trx.rollback();
-    console.error('Error al crear afiliado:', error);
+    console.error('[AFFILIATES] Error al crear afiliado:', error.message);
+    if (error.message === 'El usuario ya existe') {
+      return res.status(400).json({ message: 'Ya existe un usuario con ese email' });
+    }
     return res.status(500).json({ message: 'Error interno al procesar la solicitud' });
   }
-}
+};
 
-const getAffiliatesByStatus = async (req, res) => {
-  const { status } = req.query;
+const getAffiliatesList = async (req, res) => {
+  try {
+    const { status } = req.query;
 
-  if (status) {
-    return res.status(200).json(await affiliateRepository.getAffiliatesByStatus(status));
+    // Solo ADMIN puede listar todos los afiliados o filtrar por estado
+    if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({ message: 'Permisos insuficientes' });
+    }
+
+    if (status !== undefined) {
+      const parsedStatus = status === 'true' || status === true;
+      const affiliates = await affiliateRepository.getAffiliatesByStatus(parsedStatus);
+      return res.status(200).json(affiliates);
+    }
+
+    const affiliates = await affiliateRepository.getAllAffiliates();
+    return res.status(200).json(affiliates);
+  } catch (error) {
+    console.error('[AFFILIATES] Error en getAffiliatesList:', error.message);
+    return res.status(500).json({ message: 'Error interno al obtener los afiliados' });
   }
-
-  return res.status(200).json(await affiliateRepository.getAllAffiliates());
-}
+};
 
 const getAffiliateById = async (req, res) => {
-  const { id } = req.params;
-  const affiliate = await affiliateRepository.getAffiliateById(id);
+  try {
+    const { id } = req.params;
+    const affiliate = await affiliateRepository.getAffiliateById(id);
 
-  if (!affiliate) {
-    return res.status(404).json({ message: 'El afiliado no existe' });
+    if (!affiliate) {
+      return res.status(404).json({ message: 'El afiliado no existe' });
+    }
+
+    return res.status(200).json(affiliate);
+  } catch (error) {
+    console.error('[AFFILIATES] Error en getAffiliateById:', error.message);
+    return res.status(500).json({ message: 'Error interno al obtener el afiliado' });
   }
-
-  return res.status(200).json(affiliate);
-}
+};
 
 const getAffiliateByUserId = async (id) => {
-  const affiliate = await affiliateRepository.getAffiliateByUserId(id);
-
-  if (!affiliate) {
-    return null;
-  }
-
-  return affiliate;
-}
+  return affiliateRepository.getAffiliateByUserId(id) || null;
+};
 
 const activateAffiliate = async (req, res) => {
-  const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-  // Obtener el afiliado para tener su email y nombre
-  const affiliate = await affiliateRepository.getAffiliateById(id);
-  if (!affiliate) {
-    return res.status(404).json({ message: 'El afiliado no existe' });
-  }
-
-  const result = await affiliateRepository.activateAffiliate(id);
-
-  if (result) {
-    // Enviar email de activación
-    try {
-      await mailService.sendEmail(
-        affiliate.email,
-        'Tu cuenta ha sido activada - Portal UNAHUR',
-        'account_activated',
-        { name: `${affiliate.first_name} ${affiliate.last_name}` }
-      );
-    } catch (mailError) {
-      console.error('Error al enviar email de activación:', mailError);
+    const affiliate = await affiliateRepository.getAffiliateById(id);
+    if (!affiliate) {
+      return res.status(404).json({ message: 'El afiliado no existe' });
     }
-  }
 
-  return res.status(200).json({ message: 'Afiliado activado exitosamente' });
-}
+    await affiliateRepository.activateAffiliate(id);
+
+    await notify('ACCOUNT_ON', affiliate.email, {
+      name: `${affiliate.first_name} ${affiliate.last_name}`.trim()
+    });
+
+    return res.status(200).json({ message: 'Afiliado activado exitosamente' });
+  } catch (error) {
+    console.error('[AFFILIATES] Error en activateAffiliate:', error.message);
+    return res.status(500).json({ message: 'Error interno al activar el afiliado' });
+  }
+};
 
 const deactivateAffiliate = async (req, res) => {
-  const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-  // Obtener el afiliado para tener su email y nombre
-  const affiliate = await affiliateRepository.getAffiliateById(id);
-  if (!affiliate) {
-    return res.status(404).json({ message: 'El afiliado no existe' });
-  }
-
-  const result = await affiliateRepository.deactivateAffiliate(id);
-
-  if (result) {
-    // Enviar email de desactivación
-    try {
-      await mailService.sendEmail(
-        affiliate.email,
-        'Tu cuenta ha sido desactivada - Portal UNAHUR',
-        'account_deactivated',
-        { name: `${affiliate.first_name} ${affiliate.last_name}` }
-      );
-    } catch (mailError) {
-      console.error('Error al enviar email de desactivación:', mailError);
+    const affiliate = await affiliateRepository.getAffiliateById(id);
+    if (!affiliate) {
+      return res.status(404).json({ message: 'El afiliado no existe' });
     }
+
+    await affiliateRepository.deactivateAffiliate(id);
+
+    await notify('ACCOUNT_OFF', affiliate.email, {
+      name: `${affiliate.first_name} ${affiliate.last_name}`.trim()
+    });
+
+    return res.status(200).json({ message: 'Afiliado desactivado exitosamente' });
+  } catch (error) {
+    console.error('[AFFILIATES] Error en deactivateAffiliate:', error.message);
+    return res.status(500).json({ message: 'Error interno al desactivar el afiliado' });
   }
+};
 
-  return res.status(200).json({ message: 'Afiliado desactivado exitosamente' });
-}
-
-
-const getAllAffiliates = async (req, res) => {
-  const affiliates = await affiliateRepository.getAllAffiliates();
-  return res.status(200).json(affiliates);
-}
-
-
-/* metodos auxiliares para la creacion de un afiliado */
+/* métodos auxiliares */
 
 const existsAffiliate = async (document_number, document_type, trx) => {
   return affiliateRepository.existsAffiliate(document_number, document_type, trx);
-}
+};
 
 const generateCredencialNumber = async (trx) => {
   const result = await affiliateRepository.getLastCredencialNumber(trx);
   const max = result ? result.max : null;
 
-  if (!max) {
-    return '0000001-01';
-  }
-  
-  // max es algo como "0000001-01"
+  if (!max) return '0000001-01';
+
   const [numberPart] = max.split('-');
-  const nextNumber = parseInt(numberPart) + 1;
+  const nextNumber = parseInt(numberPart, 10) + 1;
   return `${nextNumber.toString().padStart(7, '0')}-01`;
-}
+};
 
 const toDateStr = (val) => {
   if (!val) return null;
@@ -245,7 +239,7 @@ const getMyAppointments = async (req, res) => {
     const rows = await affiliateRepository.getAppointmentsByAffiliate(affiliate.id, status || null);
     return res.status(200).json(rows.map(serializeAppointment));
   } catch (error) {
-    console.error('Error getMyAppointments:', error);
+    console.error('[AFFILIATES] Error getMyAppointments:', error.message);
     return res.status(500).json({ message: 'Error al obtener los turnos' });
   }
 };
@@ -261,7 +255,7 @@ const getAvailableSlots = async (req, res) => {
     if (!agenda) return res.status(404).json({ message: 'Agenda no encontrada' });
     if (!agenda.esta_activo) return res.status(422).json({ message: 'La agenda no está activa' });
 
-    const dayOfWeek = new Date(fecha + 'T00:00:00').getDay();
+    const dayOfWeek = new Date(`${fecha}T00:00:00-03:00`).getDay();
     const bloques = Array.isArray(agenda.bloques) ? agenda.bloques : JSON.parse(agenda.bloques || '[]');
     const duracion = agenda.duracion_turno || 30;
 
@@ -290,7 +284,7 @@ const getAvailableSlots = async (req, res) => {
 
     return res.status(200).json(available);
   } catch (error) {
-    console.error('Error getAvailableSlots:', error);
+    console.error('[AFFILIATES] Error getAvailableSlots:', error.message);
     return res.status(500).json({ message: 'Error al obtener slots disponibles' });
   }
 };
@@ -333,6 +327,15 @@ const bookAppointment = async (req, res) => {
       motivo: String(motivo).trim(),
     });
 
+    // Notificación al afiliado
+    await notify('APPT_CREATE', affiliate.email, {
+      name: `${affiliate.first_name} ${affiliate.last_name}`.trim(),
+      date: fecha,
+      time: `${horaIni} - ${horaFin}`,
+      doctor: '',
+      motivo: String(motivo).trim(),
+    });
+
     return res.status(201).json({
       id: appointment.id,
       fecha: toDateStr(appointment.appointment_date),
@@ -342,7 +345,7 @@ const bookAppointment = async (req, res) => {
       motivo: appointment.reason,
     });
   } catch (error) {
-    console.error('Error bookAppointment:', error);
+    console.error('[AFFILIATES] Error bookAppointment:', error.message);
     return res.status(500).json({ message: 'Error al reservar el turno' });
   }
 };
@@ -358,37 +361,48 @@ const cancelAppointment = async (req, res) => {
 
     const appointment = await affiliateRepository.getAppointmentById(id);
     if (!appointment) return res.status(404).json({ message: 'Turno no encontrado' });
+
+    // IDOR: verificar que el turno pertenece al afiliado autenticado
     if (appointment.affiliate_id !== affiliate.id)
       return res.status(403).json({ message: 'No tenés permiso para cancelar este turno' });
+
     if (appointment.status !== 'reservado')
       return res.status(422).json({ message: 'El turno no puede cancelarse en su estado actual' });
 
     const today = new Date().toISOString().split('T')[0];
-    if (appointment.appointment_date < today)
+    if (toDateStr(appointment.appointment_date) < today)
       return res.status(422).json({ message: 'No se puede cancelar un turno pasado' });
 
     const updated = await affiliateRepository.cancelAppointment(id, motivo);
+
+    // Notificación al afiliado
+    await notify('APPT_CANCEL', affiliate.email, {
+      name: `${affiliate.first_name} ${affiliate.last_name}`.trim(),
+      status: 'cancelado',
+      date: toDateStr(appointment.appointment_date),
+      motivo,
+    });
+
     return res.status(200).json({
       id: updated.id,
       status: updated.status,
       motivoCancelacion: updated.cancellation_reason,
     });
   } catch (error) {
-    console.error('Error cancelAppointment:', error);
+    console.error('[AFFILIATES] Error cancelAppointment:', error.message);
     return res.status(500).json({ message: 'Error al cancelar el turno' });
   }
 };
 
 module.exports = {
   createAffiliate,
-  getAffiliatesByStatus,
+  getAffiliatesList,
   getAffiliateById,
   activateAffiliate,
   deactivateAffiliate,
   getAffiliateByUserId,
-  getAllAffiliates,
   getMyAppointments,
   getAvailableSlots,
   bookAppointment,
   cancelAppointment,
-}
+};

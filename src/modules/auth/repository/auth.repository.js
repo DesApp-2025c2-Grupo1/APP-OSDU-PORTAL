@@ -20,6 +20,17 @@ const getUserById = async (id, trx = db) => {
         .first();
 }
 
+// Igual que getUserById pero incluye el hash de contraseña y first_name para changePassword
+const getUserByIdFull = async (id, trx = db) => {
+    if (!id) return null;
+    return trx('users')
+        .select('users.id', 'users.email', 'users.password', 'users.first_name', 'users.must_change_password', 'roles.role_name')
+        .join('user_roles', 'users.id', 'user_roles.user_id')
+        .join('roles', 'user_roles.role_id', 'roles.id')
+        .where('users.id', id)
+        .first();
+}
+
 const createUser = async (email, password, trx = db) => {
     return trx('users')
         .insert({ email: email, password: password })
@@ -50,6 +61,7 @@ const updateUserPassword = async (userId, newPassword, trx = db) => {
 module.exports = {
     getUserByUsername,
     getUserById,
+    getUserByIdFull,
     createUser,
     getRoleByRoleName,
     createUserRole,

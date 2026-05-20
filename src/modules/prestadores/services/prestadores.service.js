@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { generateToken } = require('../../auth/utils/jwt.service');
+const { notify } = require('../../mail/notification.service');
 const prestadoresRepository = require('../repository/prestadores.repository');
 const db = require('../../../database/db');
 
@@ -159,13 +160,16 @@ const serializeSituation = (situation) => ({
 });
 
 const getCurrentPrestadorId = async (req) => {
-  if (req.user?.id) {
-    const prestador = await prestadoresRepository.getPrestadorByUserId(req.user.id);
-    if (prestador) return prestador.id;
+  if (!req.user || !req.user.id) {
+    throw new HttpError(401, 'No autenticado');
   }
 
-  const prestador = await prestadoresRepository.getDefaultPrestador();
-  return prestador?.id;
+  const prestador = await prestadoresRepository.getPrestadorByUserId(req.user.id);
+  if (!prestador) {
+    throw new HttpError(403, 'No tienes un perfil de prestador configurado en el sistema');
+  }
+
+  return prestador.id;
 };
 
 const getUserId = (req) => req.user?.id || req.user?.id_usuario || req.user?.userId || null;
@@ -175,6 +179,17 @@ const ensureAffiliate = async (affiliateId) => {
   if (!affiliate) throw new HttpError(404, 'El afiliado no existe');
   if (affiliate.status === false) throw new HttpError(422, 'El afiliado no se encuentra activo');
   return affiliate;
+};
+
+const validateRelationship = async (req, affiliateId) => {
+  const role = req.user?.role || req.user?.role_name;
+  if (role === 'PRESTADOR') {
+    const prestadorId = await getCurrentPrestadorId(req);
+    const hasRelationship = await prestadoresRepository.hasAppointmentWithAffiliate(prestadorId, affiliateId);
+    if (!hasRelationship) {
+      throw new HttpError(403, 'Acceso denegado. No tienes una relación de atención activa con este afiliado para consultar su información clínica.');
+    }
+  }
 };
 
 const affiliateName = (affiliate) => `${affiliate.first_name} ${affiliate.last_name}`.trim();
@@ -264,15 +279,17 @@ const login = async (req, res) => {
 };
 
 const getDashboardStats = async (req, res) => {
-  const prestadorId = await getCurrentPrestadorId(req);
-  if (!prestadorId) return res.status(404).json({ message: 'No hay prestador configurado' });
-
-  const stats = await prestadoresRepository.getDashboardStats(prestadorId);
-  return res.status(200).json({
-    pendientes: stats.pendientes,
-    observadas: stats.observadas,
-    actividadReciente: stats.actividadReciente.map(serializeActivity),
-  });
+  try {
+    const prestadorId = await getCurrentPrestadorId(req);
+    const stats = await prestadoresRepository.getDashboardStats(prestadorId);
+    return res.status(200).json({
+      pendientes: stats.pendientes,
+      observadas: stats.observadas,
+      actividadReciente: stats.actividadReciente.map(serializeActivity),
+    });
+  } catch (error) {
+    return sendError(res, error, 'Error getDashboardStats:');
+  }
 };
 
 const getRequests = async (req, res) => {
@@ -312,6 +329,15 @@ const updateRequestStatus = async (req, res) => {
         action: 'cambiar_estado',
         reason: motivo || null,
         metadata: { solicitudId: updated.id, estado }
+      });
+      const affiliate = await prestadoresRepository.getAffiliateById(updated.affiliate_id);
+      await notify('REQ_STATUS', affiliate.email, {
+        name: `${affiliate.first_name} ${affiliate.last_name}`.trim(),
+        requestNumber: updated.request_number || '',
+        type: updated.type,
+        status: estado,
+        date: updated.request_date ? formatDate(updated.request_date) : '',
+        motivo: motivo || '',
       });
       return updated;
     });
@@ -356,6 +382,15 @@ const createRequest = async (req, res) => {
       return created;
     });
 
+    await notify('REQ_STATUS', affiliate.email, {
+      name: affiliateName(affiliate),
+      type: tipo,
+      requestNumber: request.request_number || '',
+      status: 'Pendiente',
+      date: fecha,
+      motivo: '',
+    });
+
     return res.status(201).json(serializeRequest(request));
   } catch (error) {
     return sendError(res, error, 'Error createRequest:');
@@ -379,18 +414,27 @@ const getAppointments = async (req, res) => {
 };
 
 const getAppointmentsByMonth = async (req, res) => {
-  const prestadorId = await getCurrentPrestadorId(req);
-  const { year, month } = req.query;
+  try {
+    const prestadorId = await getCurrentPrestadorId(req);
+    const { year, month } = req.query;
 
-  if (!prestadorId) return res.status(404).json({ message: 'No hay prestador configurado' });
-  if (!year || !month) return res.status(400).json({ message: 'El año y mes son requeridos' });
+    if (!year || !month) return res.status(400).json({ message: 'El año y mes son requeridos' });
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(month)) {
+      return res.status(422).json({ message: 'Año o mes inválido' });
+    }
 
-  const rows = await prestadoresRepository.getAppointmentsByMonth(prestadorId, year, month);
-  
-  // Extraer solo los días
-  const dias = rows.map(r => parseInt(r.appointment_date.split('-')[2], 10));
-  
-  return res.status(200).json(dias);
+    const rows = await prestadoresRepository.getAppointmentsByMonth(prestadorId, year, month);
+    const dias = rows.map(r => {
+      const dateStr = r.appointment_date instanceof Date
+        ? r.appointment_date.toISOString().split('T')[0]
+        : String(r.appointment_date).split('T')[0];
+      return parseInt(dateStr.split('-')[2], 10);
+    });
+
+    return res.status(200).json(dias);
+  } catch (error) {
+    return sendError(res, error, 'Error getAppointmentsByMonth:');
+  }
 };
 
 const createAppointment = async (req, res) => {
@@ -439,7 +483,14 @@ const createAppointment = async (req, res) => {
       return created;
     });
 
-    return res.status(201).json(serializeAppointment(appointment));
+    await notify('APPT_CREATE', affiliate.email, {
+        name: affiliateName(affiliate),
+        date,
+        time: `${horaIni} - ${horaFin}`,
+        doctor: req.user?.first_name || '',
+        motivo
+      });
+      return res.status(201).json(serializeAppointment(appointment));
   } catch (error) {
     return sendError(res, error, 'Error createAppointment:');
   }
@@ -514,6 +565,21 @@ const updateAppointmentStatus = async (req, res) => {
       return updated;
     });
 
+    // Notificar al afiliado si el estado cambia a algo relevante
+    if (['confirmado', 'cancelado', 'ausente', 'atendido'].includes(estado)) {
+      const affiliateData = await prestadoresRepository.getAffiliateById(appointment.affiliate_id);
+      if (affiliateData) {
+        await notify('APPT_STATUS', affiliateData.email, {
+          name: `${affiliateData.first_name} ${affiliateData.last_name}`.trim(),
+          status: estado,
+          date: appointment.appointment_date instanceof Date
+            ? appointment.appointment_date.toISOString().split('T')[0]
+            : String(appointment.appointment_date).split('T')[0],
+          motivo: motivo || '',
+        });
+      }
+    }
+
     return res.status(200).json(serializeAppointment(appointment));
   } catch (error) {
     return sendError(res, error, 'Error updateAppointmentStatus:');
@@ -532,6 +598,7 @@ const getClinicalHistory = async (req, res) => {
   try {
     const { id } = req.params;
     await ensureAffiliate(id);
+    await validateRelationship(req, id);
     const history = await prestadoresRepository.getClinicalHistoryByAffiliate(id);
     return res.status(200).json(history.map(serializeHistory));
   } catch (error) {
@@ -543,8 +610,8 @@ const createClinicalHistory = async (req, res) => {
   try {
     const prestadorId = await getCurrentPrestadorId(req);
     const { id } = req.params;
-    if (!prestadorId) return res.status(404).json({ message: 'No hay prestador configurado' });
     await ensureAffiliate(id);
+    await validateRelationship(req, id);
     const nota = requireText(req.body.nota, 'nota', 'La evolución es requerida');
     const fecha = assertISODate(toISODate(req.body.fecha) || new Date().toISOString().slice(0, 10));
 
@@ -578,9 +645,15 @@ const getSituationTypes = async (req, res) => {
 };
 
 const getSituations = async (req, res) => {
-  const { affiliateId } = req.params;
-  const situations = await prestadoresRepository.getSituationsByAffiliate(affiliateId);
-  return res.status(200).json(situations.map(serializeSituation));
+  try {
+    const { affiliateId } = req.params;
+    await ensureAffiliate(affiliateId);
+    await validateRelationship(req, affiliateId);
+    const situations = await prestadoresRepository.getSituationsByAffiliate(affiliateId);
+    return res.status(200).json(situations.map(serializeSituation));
+  } catch (error) {
+    return sendError(res, error, 'Error getSituations:');
+  }
 };
 
 const createSituation = async (req, res) => {
@@ -665,12 +738,25 @@ const updateSituation = async (req, res) => {
 };
 
 const deleteSituation = async (req, res) => {
-  const { affiliateId, situationId } = req.params;
-  const situation = await prestadoresRepository.deleteSituation(affiliateId, situationId);
-  
-  if (!situation) return res.status(404).json({ message: 'La situacion no existe' });
-  
-  return res.status(200).json({ message: 'OK' });
+  try {
+    const { affiliateId, situationId } = req.params;
+    await ensureAffiliate(affiliateId);
+    await validateRelationship(req, affiliateId);
+
+    if (req.user.role === 'PRESTADOR') {
+      const prestadorId = await getCurrentPrestadorId(req);
+      const sit = await prestadoresRepository.getSituationById(situationId);
+      if (!sit || sit.prestador_id !== prestadorId) {
+        return res.status(403).json({ error: 'Acceso denegado', message: 'No tienes permiso para eliminar esta situación.' });
+      }
+    }
+
+    const situation = await prestadoresRepository.deleteSituation(affiliateId, situationId);
+    if (!situation) return res.status(404).json({ message: 'La situacion no existe' });
+    return res.status(200).json({ message: 'OK' });
+  } catch (error) {
+    return sendError(res, error, 'Error deleteSituation:');
+  }
 };
 
 const getNotifications = async (req, res) => {
