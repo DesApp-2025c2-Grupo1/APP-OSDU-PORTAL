@@ -1,4 +1,5 @@
 const db = require('../../../database/db');
+const { sendError } = require('../../../utils/api-error');
 
 const getAll = async (req, res) => {
   try {
@@ -6,18 +7,18 @@ const getAll = async (req, res) => {
     // frontend expects an array of Especialidad: {id, nombre}
     return res.status(200).json(specialties.map(e => ({ id: e.id, nombre: e.nombre })));
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al obtener especialidades');
   }
 }
 
 const getById = async (req, res) => {
   try {
     const e = await db('especialidades').where('id', req.params.id).first();
-    if (!e) return res.status(404).json({ error: 'Specialty not found' });
+    if (!e) return res.status(404).json({ error: 'Especialidad no encontrada', message: 'Especialidad no encontrada' });
     
     return res.status(200).json({ id: e.id, nombre: e.nombre });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al obtener la especialidad');
   }
 }
 

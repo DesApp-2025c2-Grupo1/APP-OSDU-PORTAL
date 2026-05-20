@@ -26,8 +26,6 @@ const upload = require('../../../middlewares/upload');
  *       200:
  *         description: Afiliados obtenidos correctamente
  */
-router.get('/', authorize('ADMIN'), affiliatesService.getAffiliatesByStatus);
-
 // Turnos del afiliado autenticado
 router.get('/turnos/disponibles', authorize('AFILIADO'), affiliatesService.getAvailableSlots);
 router.get('/turnos', authorize('AFILIADO'), affiliatesService.getMyAppointments);
@@ -42,6 +40,15 @@ router.put('/reintegros/:id/respuesta', authorize('AFILIADO'), affiliatesService
 // Admin — gestión de reintegros
 router.get('/reintegros/admin', authorize('ADMIN'), affiliatesService.adminGetReintegros);
 router.put('/reintegros/:id/admin/estado', authorize('ADMIN'), affiliatesService.adminUpdateReintegroStatus);
+
+router.get('/scheduled', authorize('ADMIN'), affiliatesService.getScheduledAffiliates);
+router.get('/affiliate/:identifier', authorize('ADMIN'), affiliatesService.getAffiliateByDocument);
+router.get('/family/:identifier', authorize('ADMIN'), affiliatesService.getFamilyGroup);
+router.post('/family/:identifier', authorize('ADMIN'), affiliatesService.createFamilyMember);
+router.delete('/family/member/:identifier', authorize('ADMIN'), affiliatesService.deleteFamilyMember);
+router.post('/:id/schedule-delete', authorize('ADMIN'), affiliatesService.scheduleDeleteAffiliate);
+
+router.get('/', authorize('ADMIN'), affiliatesService.getAffiliatesByStatus);
 
 /**
  * @swagger
@@ -62,6 +69,8 @@ router.put('/reintegros/:id/admin/estado', authorize('ADMIN'), affiliatesService
  *         description: Afiliado obtenido correctamente
  */
 router.get('/:id', authorize('ADMIN'), affiliatesService.getAffiliateById);
+router.put('/:id', authorize('ADMIN'), affiliatesService.updateAffiliate);
+router.delete('/:id', authorize('ADMIN'), affiliatesService.removeAffiliate);
 
 /**
  * @swagger
@@ -115,11 +124,39 @@ router.put('/:id/deactivate', authorize('ADMIN'), affiliatesService.deactivateAf
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [nroDocumento, tipoDocumento, fechaNacimiento, nombre, apellido, email, telefono, idPlan]
  *             properties:
- *               document_number:
+ *               nroDocumento:
  *                 type: string
- *               document_type:
+ *                 example: "12345678"
+ *               tipoDocumento:
  *                 type: string
+ *                 example: DNI
+ *               fechaNacimiento:
+ *                 type: string
+ *                 format: date
+ *               nombre:
+ *                 type: string
+ *               apellido:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               telefono:
+ *                 type: string
+ *               idPlan:
+ *                 type: integer
+ *               grupoFamiliar:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     nombreCompleto:
+ *                       type: string
+ *                     parentesco:
+ *                       type: string
+ *                     nroDocumento:
+ *                       type: string
  *     responses:
  *       200:
  *         description: Afiliado creado correctamente
@@ -142,6 +179,4 @@ router.post('/', upload.fields([
  *       200:
  *         description: Afiliados obtenidos correctamente
  */
-router.get("/", authorize('AFILIADO', 'ADMIN'), affiliatesService.getAllAffiliates);
-
 module.exports = router;

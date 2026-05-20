@@ -1,25 +1,25 @@
 class AffiliateModel {
     constructor(reqBody) {
-        this.credencial_number = ""; //Se calcula en el momento de la creacio
-        this.document_number = reqBody.document_number;
-        this.document_type = reqBody.document_type;
-        this.birth_date = reqBody.birth_date;
-        this.first_name = reqBody.first_name;
-        this.last_name = reqBody.last_name;
+        this.nro_credencial = ""; // Se calcula en el momento de la creación
+        this.nro_documento = reqBody.nroDocumento;
+        this.tipo_documento = reqBody.tipoDocumento;
+        this.fecha_nacimiento = reqBody.fechaNacimiento;
+        this.nombre = reqBody.nombre;
+        this.apellido = reqBody.apellido;
         this.email = reqBody.email;
-        this.phone = reqBody.phone;
-        this.address = reqBody.address;
-        this.city = reqBody.city;
-        this.province = reqBody.province;
-        this.postal_code = reqBody.postal_code;
-        this.country = reqBody.country || null;
-        this.plan_id = reqBody.plan_id;
-        this.user_id = null;
-        this.status = false;
+        this.telefono = reqBody.telefono;
+        this.direccion = reqBody.direccion;
+        this.localidad = reqBody.localidad;
+        this.provincia = reqBody.provincia;
+        this.codigo_postal = reqBody.codigoPostal;
+        this.pais = reqBody.pais || null;
+        this.plan_id = reqBody.idPlan;
+        this.usuario_id = null;
+        this.activo = false;
 
         // Attach document paths if provided dynamically
-        if (reqBody.dni_document_path) this.dni_document_path = reqBody.dni_document_path;
-        if (reqBody.payslip_document_path) this.payslip_document_path = reqBody.payslip_document_path;
+        if (reqBody.ruta_documento_dni) this.ruta_documento_dni = reqBody.ruta_documento_dni;
+        if (reqBody.ruta_recibo_sueldo) this.ruta_recibo_sueldo = reqBody.ruta_recibo_sueldo;
     }
 }
 

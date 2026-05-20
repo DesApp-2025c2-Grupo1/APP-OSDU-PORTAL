@@ -2,48 +2,59 @@ const db = require('../../../database/db');
 
 const getUserByUsername = async (email, trx = db) => {
     if (!email) return null;
-    return trx('users')
-        .select('users.*', 'roles.role_name')
-        .join('user_roles', 'users.id', 'user_roles.user_id')
-        .join('roles', 'user_roles.role_id', 'roles.id')
-        .where('users.email', email)
+    return trx('usuarios')
+        .select(
+            'usuarios.id',
+            'usuarios.email',
+            'usuarios.contrasenia as password',
+            'usuarios.debe_cambiar_password as must_change_password',
+            'roles.nombre_rol as role_name'
+        )
+        .join('usuarios_roles', 'usuarios.id', 'usuarios_roles.usuario_id')
+        .join('roles', 'usuarios_roles.rol_id', 'roles.id')
+        .where('usuarios.email', email)
         .first();
 }
 
 const getUserById = async (id, trx = db) => {
     if (!id) return null;
-    return trx('users')
-        .select('users.id', 'users.email', 'users.must_change_password', 'roles.role_name')
-        .join('user_roles', 'users.id', 'user_roles.user_id')
-        .join('roles', 'user_roles.role_id', 'roles.id')
-        .where('users.id', id)
+    return trx('usuarios')
+        .select(
+            'usuarios.id',
+            'usuarios.email',
+            'usuarios.debe_cambiar_password as must_change_password',
+            'roles.nombre_rol as role_name'
+        )
+        .join('usuarios_roles', 'usuarios.id', 'usuarios_roles.usuario_id')
+        .join('roles', 'usuarios_roles.rol_id', 'roles.id')
+        .where('usuarios.id', id)
         .first();
 }
 
 const createUser = async (email, password, trx = db) => {
-    return trx('users')
-        .insert({ email: email, password: password })
+    return trx('usuarios')
+        .insert({ email: email, contrasenia: password })
         .returning('*');
 }
 
 // metodos para la base de datos de roles
 const getRoleByRoleName = async (roleName, trx = db) => {
     if (!roleName) return null;
-    return trx('roles').where({ role_name: roleName }).first();
+    return trx('roles').where({ nombre_rol: roleName }).first();
 }
 
 // lo inserta en la tabla de usuarios y roles
 const createUserRole = async (userId, roleId, trx = db) => {
     if (!userId || !roleId) return null;
-    return trx('user_roles').insert({ user_id: userId, role_id: roleId }).returning('*');
+    return trx('usuarios_roles').insert({ usuario_id: userId, rol_id: roleId }).returning('*');
 }
 
 const updateUserPassword = async (userId, newPassword, trx = db) => {
-    return trx('users')
+    return trx('usuarios')
         .where({ id: userId })
         .update({ 
-            password: newPassword,
-            must_change_password: false 
+            contrasenia: newPassword,
+            debe_cambiar_password: false 
         });
 }
 

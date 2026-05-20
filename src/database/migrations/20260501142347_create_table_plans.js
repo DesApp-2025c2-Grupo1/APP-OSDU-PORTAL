@@ -3,12 +3,12 @@
  * @returns { Promise<void> }
  */
 exports.up = function(knex) {
-    return knex.schema.createTable('plans', function(table) {
+    return knex.schema.createTable('planes', function(table) {
         table.increments('id').primary();
-        table.string('plan_code', 3).notNullable().unique();
-        table.string('plan_name', 20).notNullable();
-        table.timestamp('created_at').defaultTo(knex.fn.now());
-        table.timestamp('updated_at').defaultTo(knex.fn.now());
+        table.string('codigo', 3).notNullable().unique();
+        table.string('nombre', 20).notNullable();
+        table.timestamp('creado_en').defaultTo(knex.fn.now());
+        table.timestamp('actualizado_en').defaultTo(knex.fn.now());
     });
 };
 
@@ -17,5 +17,5 @@ exports.up = function(knex) {
  * @returns { Promise<void> }
  */
 exports.down = function(knex) {
-    return knex.schema.dropTable('plans');
+    return knex.schema.dropTable('planes');
 };

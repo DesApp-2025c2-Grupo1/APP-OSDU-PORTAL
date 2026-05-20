@@ -3,10 +3,10 @@
  * @returns { Promise<void> } 
  */
 exports.seed = async function(knex) {
-  await knex('plans').insert([
-    {id: 1, plan_code: '210', plan_name: 'BRONCE'},
-    {id: 2, plan_code: '310', plan_name: 'PLATA'},
-    {id: 3, plan_code: '410', plan_name: 'ORO'},
-    {id: 4, plan_code: '510', plan_name: 'PLATINO'}
+  await knex('planes').insert([
+    {id: 1, codigo: '210', nombre: 'BRONCE'},
+    {id: 2, codigo: '310', nombre: 'PLATA'},
+    {id: 3, codigo: '410', nombre: 'ORO'},
+    {id: 4, codigo: '510', nombre: 'PLATINO'}
   ]).onConflict('id').merge();
 };

@@ -30,11 +30,35 @@ router.post('/login', authService.login);
 
 router.get('/me', authorize('ADMIN', 'AFILIADO', 'PRESTADOR'), authService.me);
 
+/**
+ * @swagger
+ * /auth/change-password:
+ *   post:
+ *     summary: Cambia la contraseña del usuario autenticado
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [nuevaPassword]
+ *             properties:
+ *               nuevaPassword:
+ *                 type: string
+ *                 minLength: 8
+ *                 example: Clave123
+ *                 description: Debe incluir letras, números y no contener espacios.
+ *     responses:
+ *       200:
+ *         description: Contraseña actualizada correctamente
+ *       400:
+ *         description: La contraseña no cumple la política de seguridad
+ */
 router.post('/change-password', authorize('ADMIN', 'AFILIADO', 'PRESTADOR'), authService.changePassword);
 
-router.post('/logout', (req, res) => {
-    res.clearCookie('token');
-    res.status(200).json({ message: 'Sesión cerrada correctamente' });
-});
+router.post('/logout', authService.logout);
 
 module.exports = router;

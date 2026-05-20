@@ -1,26 +1,25 @@
 const db = require('../../../database/db');
+const { sendError } = require('../../../utils/api-error');
 
 const getAll = async (req, res) => {
   try {
-    const plans = await db('plans').select('*');
-    // Frontend expects { plans: [...] } based on planService.ts
-    // or sometimes just an array, but the code says: return data.plans || [];
+    const plans = await db('planes').select('*');
     return res.status(200).json({
-      plans: plans.map(p => ({ idPlan: p.id, nombre: p.plan_name }))
+      plans: plans.map(p => ({ idPlan: p.id, nombre: p.nombre }))
     });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al obtener planes');
   }
 };
 
 const getById = async (req, res) => {
   try {
-    const p = await db('plans').where('id', req.params.id).first();
-    if (!p) return res.status(404).json({ error: 'Plan not found' });
+    const p = await db('planes').where('id', req.params.id).first();
+    if (!p) return res.status(404).json({ error: 'Plan no encontrado', message: 'Plan no encontrado' });
     
-    return res.status(200).json({ idPlan: p.id, nombre: p.plan_name });
+    return res.status(200).json({ idPlan: p.id, nombre: p.nombre });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'Error al obtener el plan');
   }
 };
 

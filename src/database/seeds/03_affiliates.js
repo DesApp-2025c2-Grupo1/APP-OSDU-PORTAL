@@ -4,28 +4,28 @@
  */
 exports.seed = async function (knex) {
     // Deletes ALL existing entries
-    await knex('affiliates').del()
-    await knex('affiliates').insert([
+    await knex('afiliados').del()
+    await knex('afiliados').insert([
         {
             id: 1,
-            user_id: 2,
-            credencial_number: '01-00000001',
-            document_type: 'DNI',
-            document_number: '12345678',
-            birth_date: '1990-01-01',
-            first_name: 'Juan',
-            last_name: 'Perez',
+            usuario_id: 2,
+            nro_credencial: '01-00000001',
+            tipo_documento: 'DNI',
+            nro_documento: '12345678',
+            fecha_nacimiento: '1990-01-01',
+            nombre: 'Juan',
+            apellido: 'Perez',
             email: 'afiliado@test.com',
-            phone: '123456789',
-            address: 'Calle 123',
-            city: 'Hurlingham',
-            province: 'Buenos Aires',
-            postal_code: '1686',
-            country: 'Argentina',
-            status: true,
+            telefono: '123456789',
+            direccion: 'Calle 123',
+            localidad: 'Hurlingham',
+            provincia: 'Buenos Aires',
+            codigo_postal: '1686',
+            pais: 'Argentina',
+            activo: true,
             plan_id: 1,
-            created_at: new Date(),
-            updated_at: new Date()
+            creado_en: new Date(),
+            actualizado_en: new Date()
         }
     ]);
 };

@@ -6,8 +6,8 @@ exports.seed = async function (knex) {
   // Deletes ALL existing entries
   await knex('roles').del()
   await knex('roles').insert([
-    { id: 1, role_name: 'ADMIN', role_description: 'Administrador del sistema' },
-    { id: 2, role_name: 'AFILIADO', role_description: 'Afiliado del sistema' },
-    { id: 3, role_name: 'PRESTADOR', role_description: 'Prestador del sistema' }
+    { id: 1, nombre_rol: 'ADMIN', descripcion_rol: 'Administrador del sistema' },
+    { id: 2, nombre_rol: 'AFILIADO', descripcion_rol: 'Afiliado del sistema' },
+    { id: 3, nombre_rol: 'PRESTADOR', descripcion_rol: 'Prestador del sistema' }
   ]);
 };

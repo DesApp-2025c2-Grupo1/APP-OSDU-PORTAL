@@ -5,16 +5,16 @@
 exports.up = async function (knex) {
   await knex.schema.alterTable('prestadores', function (table) {
     table.string('estado', 30).notNullable().defaultTo('activo');
-    table.timestamp('deactivated_at');
-    table.text('deactivation_reason');
-    table.timestamp('suspended_at');
-    table.text('suspension_reason');
-    table.timestamp('credentials_sent_at');
-    table.timestamp('password_reset_at');
+    table.timestamp('baja_en');
+    table.text('motivo_baja');
+    table.timestamp('suspendido_en');
+    table.text('motivo_suspension');
+    table.timestamp('credenciales_enviadas_en');
+    table.timestamp('contrasenia_reseteada_en');
   });
 
   await knex('prestadores')
-    .where({ status: false })
+    .where({ activo: false })
     .update({ estado: 'baja' });
 };
 
@@ -24,12 +24,12 @@ exports.up = async function (knex) {
  */
 exports.down = async function (knex) {
   await knex.schema.alterTable('prestadores', function (table) {
-    table.dropColumn('password_reset_at');
-    table.dropColumn('credentials_sent_at');
-    table.dropColumn('suspension_reason');
-    table.dropColumn('suspended_at');
-    table.dropColumn('deactivation_reason');
-    table.dropColumn('deactivated_at');
+    table.dropColumn('contrasenia_reseteada_en');
+    table.dropColumn('credenciales_enviadas_en');
+    table.dropColumn('motivo_suspension');
+    table.dropColumn('suspendido_en');
+    table.dropColumn('motivo_baja');
+    table.dropColumn('baja_en');
     table.dropColumn('estado');
   });
 };

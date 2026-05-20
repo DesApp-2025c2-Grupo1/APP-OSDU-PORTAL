@@ -3,9 +3,9 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function (knex) {
-  await knex('users')
+  await knex('usuarios')
     .where({ id: 3 })
-    .update({ must_change_password: false });
+    .update({ debe_cambiar_password: false });
 
   await knex('prestador_workflow_audit_logs').del();
   await knex('prestador_audit_logs').del();
@@ -22,18 +22,18 @@ exports.seed = async function (knex) {
   const [prestador] = await knex('prestadores')
     .insert({
       id: 1,
-      user_id: 3,
+      usuario_id: 3,
       cuit: '20304050607',
-      first_name: 'Hernan',
-      last_name: 'Gomez',
-      document_number: '30405060',
+      nombre: 'Hernan',
+      apellido: 'Gomez',
+      nro_documento: '30405060',
       email: 'prestador@test.com',
-      phone: '11 4567 8900',
-      specialty: 'Clinica medica',
+      telefono: '11 4567 8900',
+      especialidad: 'Clinica medica',
       tipo_prestador: 'profesional',
       telefonos: JSON.stringify(['1145678900']),
       mails: JSON.stringify(['prestador@test.com']),
-      status: true,
+      activo: true,
       estado: 'activo',
     })
     .returning('*');
@@ -69,11 +69,11 @@ exports.seed = async function (knex) {
   });
 
   await knex('prestador_situation_types').insert([
-    { id: 1, name: 'Tratamiento psicologico' },
-    { id: 2, name: 'Rehabilitacion post-operatoria' },
-    { id: 3, name: 'Control nutricional' },
-    { id: 4, name: 'Kinesiologia respiratoria' },
-    { id: 5, name: 'Diabetes tipo II' },
+    { id: 1, nombre: 'Tratamiento psicologico' },
+    { id: 2, nombre: 'Rehabilitacion post-operatoria' },
+    { id: 3, nombre: 'Control nutricional' },
+    { id: 4, nombre: 'Kinesiologia respiratoria' },
+    { id: 5, nombre: 'Diabetes tipo II' },
   ]);
 
   // Reset PostgreSQL sequences after seeding with explicit IDs

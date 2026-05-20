@@ -2,7 +2,8 @@ const affiliateRepository = require('../repository/affiliate.repository');
 const authService = require('../../auth/services/auth.service');
 const affiliateModel = require('../model/affiliate.model');
 const mailService = require('../../mail/mail.service');
-const { affiliateSchema } = require('../utils/validation');
+const { affiliateSchema, normalizeAffiliatePayload } = require('../utils/validation');
+const { HttpError, sendError } = require('../../../utils/api-error');
 const db = require('../../../database/db');
 const { findAgendaForAppointment, hasOverlappingAppointment } = require('../../prestadores/repository/prestadores.repository');
 
@@ -38,17 +39,35 @@ const DIA_MAP = {
 const normalizeDia = (d) => typeof d === 'number' ? d : (DIA_MAP[d] ?? -1);
 
 const createAffiliate = async (req, res) => {
-  // If family_group is string (sent from FormData), parse it
-  if (req.body.family_group && typeof req.body.family_group === 'string') {
+  // Si grupoFamiliar llega por FormData, se parsea antes de validar.
+  if (req.body.grupoFamiliar && typeof req.body.grupoFamiliar === 'string') {
     try {
-      req.body.family_group = JSON.parse(req.body.family_group);
+      req.body.grupoFamiliar = JSON.parse(req.body.grupoFamiliar);
     } catch (e) {
       // Ignore if not parseable, Joi will handle validation error
     }
   }
+  if (req.body.family_group && typeof req.body.family_group === 'string') {
+    try {
+      req.body.family_group = JSON.parse(req.body.family_group);
+    } catch (e) {}
+  }
+  if (req.body.situaciones && typeof req.body.situaciones === 'string') {
+    try {
+      req.body.situaciones = JSON.parse(req.body.situaciones);
+    } catch (e) {
+      // Ignore if not parseable, Joi will handle validation error
+    }
+  }
+  if (req.body.situations && typeof req.body.situations === 'string') {
+    try {
+      req.body.situations = JSON.parse(req.body.situations);
+    } catch (e) {}
+  }
 
   // 1. Validar el input
-  const { error, value } = affiliateSchema.validate(req.body);
+  const normalizedBody = normalizeAffiliatePayload(req.body);
+  const { error, value } = affiliateSchema.validate(normalizedBody);
   if (error) {
     console.error("Joi Validation Error:", error.details);
     return res.status(400).json({ message: 'Datos inválidos', details: error.details });
@@ -59,10 +78,10 @@ const createAffiliate = async (req, res) => {
   // Attach document paths if uploaded
   if (req.files) {
     if (req.files.dni_document && req.files.dni_document[0]) {
-      affiliate.dni_document_path = `/uploads/${req.files.dni_document[0].filename}`;
+      affiliate.ruta_documento_dni = `/uploads/${req.files.dni_document[0].filename}`;
     }
     if (req.files.payslip_document && req.files.payslip_document[0]) {
-      affiliate.payslip_document_path = `/uploads/${req.files.payslip_document[0].filename}`;
+      affiliate.ruta_recibo_sueldo = `/uploads/${req.files.payslip_document[0].filename}`;
     }
   }
 
@@ -70,7 +89,7 @@ const createAffiliate = async (req, res) => {
   const trx = await db.transaction();
 
   try {
-    if (await existsAffiliate(affiliate.document_number, affiliate.document_type, trx)) {
+    if (await existsAffiliate(affiliate.nro_documento, affiliate.tipo_documento, trx)) {
       await trx.rollback();
       return res.status(400).json({ message: 'El afiliado ya existe' });
     }
@@ -80,40 +99,54 @@ const createAffiliate = async (req, res) => {
     // Crear usuario vinculado en la misma transacción
     const user = await authService.registerInternal(affiliate.email, trx);
 
-    affiliate.user_id = user.id;
-    affiliate.credencial_number = credencialNumber;
+    affiliate.usuario_id = user.id;
+    affiliate.nro_credencial = credencialNumber;
 
-    const newAffiliate = await affiliateRepository.createAffiliate(affiliate, trx);
+    const [newAffiliate] = await affiliateRepository.createAffiliate(affiliate, trx);
+    await createAffiliateSituations(newAffiliate.id, value.situaciones || [], trx);
+    await createFamilyGroupMembers(newAffiliate, value.grupoFamiliar || [], trx);
 
     await trx.commit();
     return res.status(200).json({ id: newAffiliate.id, message: 'Afiliado creado exitosamente' });
 
   } catch (error) {
     await trx.rollback();
-    console.error('Error al crear afiliado:', error);
-    return res.status(500).json({ message: 'Error interno al procesar la solicitud' });
+    return sendError(res, error, 'Error interno al procesar la solicitud');
   }
 }
 
 const getAffiliatesByStatus = async (req, res) => {
-  const { status } = req.query;
+  const estadoActivo = req.query.activo ?? req.query.status;
 
-  if (status) {
-    return res.status(200).json(await affiliateRepository.getAffiliatesByStatus(status));
+  if (estadoActivo !== undefined) {
+    const rows = await affiliateRepository.getAffiliatesByStatus(estadoActivo);
+    return res.status(200).json(await serializeAffiliates(rows));
   }
 
-  return res.status(200).json(await affiliateRepository.getAllAffiliates());
+  const rows = await affiliateRepository.getAllAffiliates();
+  return res.status(200).json(await serializeAffiliates(rows));
 }
 
 const getAffiliateById = async (req, res) => {
   const { id } = req.params;
-  const affiliate = await affiliateRepository.getAffiliateById(id);
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(id);
 
   if (!affiliate) {
     return res.status(404).json({ message: 'El afiliado no existe' });
   }
 
-  return res.status(200).json(affiliate);
+  return res.status(200).json(await serializeAffiliate(affiliate));
+}
+
+const getAffiliateByDocument = async (req, res) => {
+  const { identifier } = req.params;
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(identifier);
+
+  if (!affiliate) {
+    return res.status(404).json({ message: 'El afiliado no existe' });
+  }
+
+  return res.status(200).json(await serializeAffiliate(affiliate));
 }
 
 const getAffiliateByUserId = async (id) => {
@@ -130,12 +163,12 @@ const activateAffiliate = async (req, res) => {
   const { id } = req.params;
 
   // Obtener el afiliado para tener su email y nombre
-  const affiliate = await affiliateRepository.getAffiliateById(id);
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(id);
   if (!affiliate) {
     return res.status(404).json({ message: 'El afiliado no existe' });
   }
 
-  const result = await affiliateRepository.activateAffiliate(id);
+  const result = await affiliateRepository.activateAffiliate(affiliate.id);
 
   if (result) {
     // Enviar email de activación
@@ -158,12 +191,12 @@ const deactivateAffiliate = async (req, res) => {
   const { id } = req.params;
 
   // Obtener el afiliado para tener su email y nombre
-  const affiliate = await affiliateRepository.getAffiliateById(id);
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(id);
   if (!affiliate) {
     return res.status(404).json({ message: 'El afiliado no existe' });
   }
 
-  const result = await affiliateRepository.deactivateAffiliate(id);
+  const result = await affiliateRepository.deactivateAffiliate(affiliate.id);
 
   if (result) {
     // Enviar email de desactivación
@@ -185,7 +218,7 @@ const deactivateAffiliate = async (req, res) => {
 
 const getAllAffiliates = async (req, res) => {
   const affiliates = await affiliateRepository.getAllAffiliates();
-  return res.status(200).json(affiliates);
+  return res.status(200).json(await serializeAffiliates(affiliates));
 }
 
 
@@ -194,6 +227,75 @@ const getAllAffiliates = async (req, res) => {
 const existsAffiliate = async (document_number, document_type, trx) => {
   return affiliateRepository.existsAffiliate(document_number, document_type, trx);
 }
+
+const splitFullName = (fullName = '') => {
+  const parts = String(fullName).trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
+  return {
+    firstName: parts[0] || '',
+    lastName: parts.slice(1).join(' ') || parts[0] || ''
+  };
+};
+
+const createAffiliateSituations = async (affiliateId, situations, trx) => {
+  for (const situation of situations) {
+    const typeRow = situation.id
+      ? await trx('prestador_situation_types').where({ id: situation.id }).first()
+      : null;
+
+    await trx('prestador_affiliate_situations').insert({
+      afiliado_id: affiliateId,
+      tipo_situacion_id: typeRow?.id || null,
+      tipo: typeRow?.nombre || situation.nombre || 'Situacion terapeutica',
+      fecha_inicio: situation.fechaInicio || new Date().toISOString().split('T')[0],
+      fecha_fin: situation.fechaFin || null,
+      activa: !situation.fechaFin
+    });
+  }
+};
+
+const createFamilyGroupMembers = async (holder, familyGroup, trx) => {
+  let index = 2;
+
+  for (const member of familyGroup) {
+    const documentType = member.tipoDocumento || 'DNI';
+    const existing = await affiliateRepository.existsAffiliate(member.nroDocumento, documentType, trx);
+    if (existing) throw new HttpError(409, `Ya existe un afiliado familiar con documento ${member.nroDocumento}`);
+
+    const nameParts = splitFullName(member.nombreCompleto);
+    const firstName = member.nombre || nameParts.firstName;
+    const lastName = member.apellido || nameParts.lastName;
+    const email = member.email || `${member.nroDocumento}@familiares.local`;
+    const user = await authService.registerInternal(email, trx);
+    const baseCredential = String(holder.credencial_number || '').split('-')[0] || String(holder.id).padStart(7, '0');
+
+    const [createdRaw] = await trx('afiliados')
+      .insert({
+        usuario_id: user.id,
+        nro_credencial: `${baseCredential}-${String(index).padStart(2, '0')}`,
+        nro_documento: member.nroDocumento,
+        tipo_documento: documentType,
+        fecha_nacimiento: member.fechaNacimiento || holder.birth_date,
+        nombre: firstName,
+        apellido: lastName,
+        telefono: member.telefono || holder.phone,
+        email,
+        direccion: member.direccion || holder.address || '',
+        localidad: member.localidad || holder.city || '',
+        provincia: member.provincia || holder.province || '',
+        codigo_postal: member.codigoPostal || holder.postal_code || '',
+        pais: holder.country || 'Argentina',
+        plan_id: holder.plan_id,
+        afiliado_titular_id: holder.id,
+        parentesco: member.parentesco || 'Familiar a cargo',
+        activo: holder.status
+      })
+      .returning('*');
+    const created = await affiliateRepository.getAffiliateById(createdRaw.id || createdRaw, trx);
+
+    await createAffiliateSituations(created.id, member.situaciones || [], trx);
+    index += 1;
+  }
+};
 
 const generateCredencialNumber = async (trx) => {
   const result = await affiliateRepository.getLastCredencialNumber(trx);
@@ -215,6 +317,260 @@ const toDateStr = (val) => {
   return String(val).split('T')[0];
 };
 
+const parseJsonArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const serializeSituation = (row) => ({
+  idSituacionAfiliado: row.id,
+  fechaInicio: toDateStr(row.fecha_inicio),
+  fechaFin: row.fecha_fin ? toDateStr(row.fecha_fin) : null,
+  estado: row.activa ? 'Activa' : 'Finalizada',
+  situacion: row.tipo,
+  situacionTerapeutica: {
+    idSituacion: row.tipo_situacion_id || row.id,
+    nombre: row.tipo
+  }
+});
+
+const getSituationsForAffiliateIds = async (affiliateIds) => {
+  if (!affiliateIds.length) return {};
+
+  let rows = [];
+  try {
+    rows = await db('prestador_affiliate_situations')
+      .whereIn('afiliado_id', affiliateIds)
+      .orderBy('fecha_inicio', 'desc')
+      .orderBy('id', 'desc');
+  } catch (error) {
+    const message = String(error.message || '').toLowerCase();
+    const optionalSituationTableMissing = ['42p01', '42703', 'SQLITE_ERROR'].includes(error.code)
+      || message.includes('prestador_affiliate_situations')
+      || message.includes('afiliado_id');
+    if (!optionalSituationTableMissing) throw error;
+    return {};
+  }
+
+  return rows.reduce((acc, row) => {
+    acc[row.afiliado_id] = acc[row.afiliado_id] || [];
+    acc[row.afiliado_id].push(serializeSituation(row));
+    return acc;
+  }, {});
+};
+
+const serializeAffiliate = async (affiliate, situationsByAffiliate = null) => {
+  const situacionesMap = situationsByAffiliate || await getSituationsForAffiliateIds([affiliate.id]);
+  const situaciones = situacionesMap[affiliate.id] || [];
+  const parentesco = affiliate.relationship || (affiliate.holder_affiliate_id ? 'Familiar a cargo' : 'Titular');
+
+  return {
+    id: affiliate.id,
+    idUsuario: affiliate.user_id,
+    dni: affiliate.document_number,
+    nroDocumento: affiliate.document_number,
+    tipoDocumento: affiliate.document_type,
+    nombre: affiliate.first_name,
+    apellido: affiliate.last_name,
+    fecha_nacimiento: toDateStr(affiliate.birth_date),
+    fechaNacimiento: toDateStr(affiliate.birth_date),
+    direccion: affiliate.address || '',
+    localidad: affiliate.city || '',
+    provincia: affiliate.province || '',
+    telefono: affiliate.phone || '',
+    telefonos: affiliate.phone ? [{ idTelefono: 0, telefono: affiliate.phone }] : [],
+    email: affiliate.email ? [{ idEmail: 0, email: affiliate.email }] : [],
+    emailPrincipal: affiliate.email || '',
+    emails: affiliate.email ? [{ idEmail: 0, email: affiliate.email }] : [],
+    credencial: affiliate.credencial_number,
+    credencial_number: affiliate.credencial_number,
+    plan: {
+      idPlan: affiliate.plan_id,
+      id: affiliate.plan_id,
+      nombre: affiliate.plan_type || affiliate.plan_code || ''
+    },
+    grupoFamiliar: affiliate.holder_affiliate_id || affiliate.id,
+    idAfiliadoTitular: affiliate.holder_affiliate_id || null,
+    parentesco,
+    activo: !!affiliate.status,
+    estado: affiliate.status ? 'Activo' : 'Pendiente',
+    fechaAlta: affiliate.created_at,
+    fecha_alta: affiliate.deactivation_scheduled_at || affiliate.created_at,
+    bajaProgramada: affiliate.deactivation_scheduled_at || null,
+    situaciones
+  };
+};
+
+const serializeAffiliates = async (affiliates) => {
+  const situationsByAffiliate = await getSituationsForAffiliateIds(affiliates.map((a) => a.id));
+  return Promise.all(affiliates.map((affiliate) => serializeAffiliate(affiliate, situationsByAffiliate)));
+};
+
+const normalizeAffiliatePatch = (body) => {
+  const email = Array.isArray(body.emails) ? body.emails[0]?.email : body.email;
+  const phone = Array.isArray(body.telefonos) ? body.telefonos[0]?.telefono : body.telefono;
+  const plan = typeof body.plan === 'object' ? body.plan?.idPlan || body.plan?.id : body.plan;
+
+  return {
+    ...(body.dni || body.nroDocumento || body.document_number ? { document_number: body.dni || body.nroDocumento || body.document_number } : {}),
+    ...(body.tipoDocumento || body.document_type ? { document_type: body.tipoDocumento || body.document_type } : {}),
+    ...(body.nombre || body.first_name ? { first_name: body.nombre || body.first_name } : {}),
+    ...(body.apellido || body.last_name ? { last_name: body.apellido || body.last_name } : {}),
+    ...(body.fecha_nacimiento || body.fechaNacimiento || body.birth_date ? { birth_date: body.fecha_nacimiento || body.fechaNacimiento || body.birth_date } : {}),
+    ...(body.direccion || body.address ? { address: body.direccion || body.address } : {}),
+    ...(body.localidad || body.city ? { city: body.localidad || body.city } : {}),
+    ...(body.provincia || body.province ? { province: body.provincia || body.province } : {}),
+    ...(body.postal_code || body.codigoPostal ? { postal_code: body.postal_code || body.codigoPostal } : {}),
+    ...(email ? { email } : {}),
+    ...(phone ? { phone } : {}),
+    ...(plan ? { plan_id: Number(plan) } : {}),
+    ...(body.parentesco || body.relationship ? { relationship: body.parentesco || body.relationship } : {})
+  };
+};
+
+const updateAffiliate = async (req, res) => {
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(req.params.id);
+  if (!affiliate) return res.status(404).json({ message: 'El afiliado no existe' });
+
+  const patch = normalizeAffiliatePatch(req.body);
+  if (Object.keys(patch).length === 0) return res.status(400).json({ message: 'No hay datos para actualizar' });
+
+  await affiliateRepository.updateAffiliateById(affiliate.id, patch);
+  const updated = await affiliateRepository.getAffiliateByIdentifier(affiliate.id);
+  return res.status(200).json(await serializeAffiliate(updated));
+};
+
+const removeAffiliate = async (req, res) => {
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(req.params.id);
+  if (!affiliate) return res.status(404).json({ message: 'El afiliado no existe' });
+
+  await affiliateRepository.deactivateAffiliate(affiliate.id);
+  return res.status(200).json({ message: 'Afiliado dado de baja correctamente' });
+};
+
+const getFamilyGroup = async (req, res) => {
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(req.params.identifier);
+  if (!affiliate) return res.status(404).json({ message: 'El afiliado no existe' });
+
+  const holderId = affiliate.holder_affiliate_id || affiliate.id;
+  const family = await affiliateRepository.getFamilyByHolderId(holderId);
+  return res.status(200).json({ affiliates: await serializeAffiliates(family) });
+};
+
+const generateFamilyCredentialNumber = async (holderId, trx) => {
+  const family = await affiliateRepository.getFamilyByHolderId(holderId, trx);
+  const titular = family.find((member) => member.id === holderId) || family[0];
+  const base = String(titular?.credencial_number || '').split('-')[0] || String(holderId).padStart(7, '0');
+  const next = family.length + 1;
+  return `${base}-${String(next).padStart(2, '0')}`;
+};
+
+const createFamilyMember = async (req, res) => {
+  const holder = await affiliateRepository.getAffiliateByIdentifier(req.params.identifier);
+  if (!holder) return res.status(404).json({ message: 'El titular no existe' });
+
+  const holderId = holder.holder_affiliate_id || holder.id;
+  const payload = req.body;
+  const email = Array.isArray(payload.emails) ? payload.emails[0]?.email : payload.email;
+  const phone = Array.isArray(payload.telefonos) ? payload.telefonos[0]?.telefono : payload.telefono;
+
+  if (!payload.dni && !payload.nroDocumento && !payload.document_number) {
+    return res.status(400).json({ message: 'El DNI del familiar es requerido' });
+  }
+  if (!email) return res.status(400).json({ message: 'El email del familiar es requerido' });
+
+  const trx = await db.transaction();
+  try {
+    const documentNumber = payload.dni || payload.nroDocumento || payload.document_number;
+    const documentType = payload.tipoDocumento || payload.document_type || 'DNI';
+    const existing = await affiliateRepository.existsAffiliate(documentNumber, documentType, trx);
+    if (existing) {
+      await trx.rollback();
+      return res.status(409).json({ message: 'El afiliado ya existe' });
+    }
+
+    const user = await authService.registerInternal(email, trx);
+    const [insertedRaw] = await trx('afiliados')
+      .insert({
+        usuario_id: user.id,
+        nro_credencial: await generateFamilyCredentialNumber(holderId, trx),
+        nro_documento: documentNumber,
+        tipo_documento: documentType,
+        fecha_nacimiento: payload.fecha_nacimiento || payload.fechaNacimiento || payload.birth_date,
+        nombre: payload.nombre || payload.first_name,
+        apellido: payload.apellido || payload.last_name,
+        telefono: phone || holder.phone || '',
+        email,
+        direccion: payload.direccion || payload.address || holder.address || '',
+        localidad: payload.localidad || payload.city || holder.city || '',
+        provincia: payload.provincia || payload.province || holder.province || '',
+        codigo_postal: payload.postal_code || holder.postal_code || '',
+        pais: payload.country || holder.country || 'Argentina',
+        plan_id: payload.plan || payload.planId || holder.plan_id,
+        afiliado_titular_id: holderId,
+        parentesco: payload.parentesco || payload.relationship || 'Familiar a cargo',
+        activo: holder.status
+      })
+      .returning('*');
+    const inserted = await affiliateRepository.getAffiliateById(insertedRaw.id || insertedRaw, trx);
+
+    const situaciones = Array.isArray(payload.situaciones) ? payload.situaciones : [];
+    for (const situacion of situaciones) {
+      const typeRow = situacion.id
+        ? await trx('prestador_situation_types').where({ id: situacion.id }).first()
+        : null;
+      await trx('prestador_affiliate_situations').insert({
+        afiliado_id: inserted.id,
+        tipo_situacion_id: typeRow?.id || null,
+        tipo: typeRow?.nombre || situacion.nombre || 'Situacion terapeutica',
+        fecha_inicio: situacion.fecha_inicio || new Date().toISOString().split('T')[0],
+        fecha_fin: situacion.fecha_fin || null,
+        activa: !situacion.fecha_fin
+      });
+    }
+
+    await trx.commit();
+    const created = await affiliateRepository.getAffiliateByIdentifier(inserted.id);
+    return res.status(201).json(await serializeAffiliate(created));
+  } catch (error) {
+    await trx.rollback();
+    return sendError(res, error, 'Error al crear familiar');
+  }
+};
+
+const deleteFamilyMember = async (req, res) => {
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(req.params.identifier);
+  if (!affiliate) return res.status(404).json({ message: 'El afiliado no existe' });
+
+  await affiliateRepository.deactivateAffiliate(affiliate.id);
+  return res.status(200).json({ message: 'Afiliado dado de baja correctamente' });
+};
+
+const scheduleDeleteAffiliate = async (req, res) => {
+  const affiliate = await affiliateRepository.getAffiliateByIdentifier(req.params.id);
+  if (!affiliate) return res.status(404).json({ message: 'El afiliado no existe' });
+
+  const scheduledDate = req.body.scheduledDate || req.body.fecha || req.body.scheduledAt;
+  const date = new Date(scheduledDate);
+  if (!scheduledDate || Number.isNaN(date.getTime())) {
+    return res.status(400).json({ message: 'Fecha de baja programada invalida' });
+  }
+
+  await affiliateRepository.updateAffiliateById(affiliate.id, { deactivation_scheduled_at: date });
+  return res.status(200).json({ message: 'Baja programada correctamente', scheduledDate: date.toISOString() });
+};
+
+const getScheduledAffiliates = async (req, res) => {
+  const affiliates = await affiliateRepository.getScheduledDeletions();
+  return res.status(200).json({ affiliates: await serializeAffiliates(affiliates) });
+};
+
 const serializeAppointment = (row) => ({
   id: row.id,
   fecha: toDateStr(row.appointment_date),
@@ -222,7 +578,7 @@ const serializeAppointment = (row) => ({
   horaFin: row.end_time,
   motivo: row.reason,
   nota: row.note || null,
-  status: row.status,
+  estado: row.status,
   motivoCancelacion: row.cancellation_reason || null,
   prestador: {
     nombre: row.prestador_first_name
@@ -338,7 +694,7 @@ const bookAppointment = async (req, res) => {
       fecha: toDateStr(appointment.appointment_date),
       horaIni: appointment.start_time,
       horaFin: appointment.end_time,
-      status: appointment.status,
+      estado: appointment.status,
       motivo: appointment.reason,
     });
   } catch (error) {
@@ -370,7 +726,7 @@ const cancelAppointment = async (req, res) => {
     const updated = await affiliateRepository.cancelAppointment(id, motivo);
     return res.status(200).json({
       id: updated.id,
-      status: updated.status,
+      estado: updated.status,
       motivoCancelacion: updated.cancellation_reason,
     });
   } catch (error) {
@@ -493,9 +849,9 @@ const ESTADOS_REINTEGRO_VALIDOS = new Set(['Pendiente', 'En análisis', 'Observa
 
 const adminGetReintegros = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { estado, status, page = 1, limit = 20 } = req.query;
     const { rows, total } = await affiliateRepository.getAllReintegrosForAdmin({
-      status: status || null,
+      status: estado || status || null,
       page: Number(page),
       limit: Number(limit),
     });
@@ -539,6 +895,14 @@ module.exports = {
   createAffiliate,
   getAffiliatesByStatus,
   getAffiliateById,
+  getAffiliateByDocument,
+  updateAffiliate,
+  removeAffiliate,
+  getFamilyGroup,
+  createFamilyMember,
+  deleteFamilyMember,
+  scheduleDeleteAffiliate,
+  getScheduledAffiliates,
   activateAffiliate,
   deactivateAffiliate,
   getAffiliateByUserId,
