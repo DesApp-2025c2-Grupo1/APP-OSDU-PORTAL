@@ -26,7 +26,7 @@ const upload = require('../../../middlewares/upload');
  *       200:
  *         description: Afiliados obtenidos correctamente
  */
-router.get('/', authorize('ADMIN', 'AFILIADO'), affiliatesService.getAffiliatesList);
+router.get('/', authorize('ADMIN'), affiliatesService.getAffiliatesList);
 
 // Turnos del afiliado autenticado
 router.get('/turnos/disponibles', authorize('AFILIADO'), affiliatesService.getAvailableSlots);
@@ -115,7 +115,7 @@ router.put('/:id/deactivate', authorize('ADMIN'), affiliatesService.deactivateAf
  *       200:
  *         description: Afiliado creado correctamente
  */
-router.post('/', upload.fields([
+router.post('/', authorize('ADMIN'), upload.fields([
   { name: 'dni_document', maxCount: 1 },
   { name: 'payslip_document', maxCount: 1 }
 ]), affiliatesService.createAffiliate);
