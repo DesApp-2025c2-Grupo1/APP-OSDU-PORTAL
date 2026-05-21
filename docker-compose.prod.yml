@@ -19,6 +19,7 @@ services:
       - certbot_www:/var/www/certbot:ro
       - certbot_conf:/etc/letsencrypt:ro
       - nginx_logs:/var/log/nginx
+      - uploads_data:/app/public/uploads:ro
     networks:
       - portal-network
     depends_on:
