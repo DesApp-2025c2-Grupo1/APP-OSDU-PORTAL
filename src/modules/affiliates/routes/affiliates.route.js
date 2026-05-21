@@ -53,6 +53,7 @@ router.put('/turnos/:id/cancelar', authorize('AFILIADO'), affiliatesService.canc
  *         description: Afiliado obtenido correctamente
  */
 router.get('/:id', authorize('ADMIN'), affiliatesService.getAffiliateById);
+router.put('/:id', authorize('ADMIN'), affiliatesService.updateAffiliate);
 
 /**
  * @swagger

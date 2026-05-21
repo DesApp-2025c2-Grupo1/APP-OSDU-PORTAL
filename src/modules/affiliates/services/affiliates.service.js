@@ -389,10 +389,46 @@ const cancelAppointment = async (req, res) => {
   }
 };
 
+const updateAffiliate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { first_name, last_name, birth_date, address, city, province, postal_code, phone, email, plan_id } = req.body;
+
+    const affiliate = await affiliateRepository.getAffiliateById(id);
+    if (!affiliate) return res.status(404).json({ message: 'El afiliado no existe' });
+
+    const patch = {};
+    if (first_name !== undefined) patch.first_name = String(first_name).trim();
+    if (last_name !== undefined) patch.last_name = String(last_name).trim();
+    if (birth_date !== undefined) patch.birth_date = birth_date;
+    if (address !== undefined) patch.address = String(address).trim();
+    if (city !== undefined) patch.city = String(city).trim();
+    if (province !== undefined) patch.province = String(province).trim();
+    if (postal_code !== undefined) patch.postal_code = String(postal_code).trim();
+    if (phone !== undefined) patch.phone = String(phone).trim();
+    if (email !== undefined) patch.email = String(email).trim().toLowerCase();
+    if (plan_id !== undefined) patch.plan_id = Number(plan_id);
+
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ message: 'No se enviaron campos para actualizar' });
+    }
+
+    patch.updated_at = new Date();
+    await db('affiliates').where({ id }).update(patch);
+
+    const updated = await affiliateRepository.getAffiliateById(id);
+    return res.status(200).json(updated);
+  } catch (error) {
+    console.error('[AFFILIATES] Error en updateAffiliate:', error.message);
+    return res.status(500).json({ message: 'Error interno al actualizar el afiliado' });
+  }
+};
+
 module.exports = {
   createAffiliate,
   getAffiliatesList,
   getAffiliateById,
+  updateAffiliate,
   activateAffiliate,
   deactivateAffiliate,
   getAffiliateByUserId,
