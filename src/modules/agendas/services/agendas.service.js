@@ -18,169 +18,221 @@ const createPrestadorAuditLog = async (trx, req, { prestadorId, action, reason =
   });
 };
 
-const serializeAgenda = async (a) => {
-  const p = await db('prestadores').where('id', a.prestador_id).first();
-  const esp = await db('especialidades').where('id', a.especialidad_id).first();
-  const lugar = await db('lugares_atencion').where('id', a.lugar_id).first();
+// Carga todas las agendas enriquecidas con un único JOIN — evita N+1
+const fetchAgendasWithJoins = async (whereClause = {}) => {
+  return db('agendas as a')
+    .leftJoin('prestadores as p', 'a.prestador_id', 'p.id')
+    .leftJoin('especialidades as e', 'a.especialidad_id', 'e.id')
+    .leftJoin('lugares_atencion as l', 'a.lugar_id', 'l.id')
+    .where(whereClause)
+    .select(
+      'a.id',
+      'a.prestador_id',
+      'a.especialidad_id',
+      'a.lugar_id',
+      'a.duracion_turno',
+      'a.fecha_inicio',
+      'a.fecha_fin',
+      'a.esta_activo',
+      'a.bloques',
+      'p.first_name as prestador_first_name',
+      'p.last_name as prestador_last_name',
+      'p.cuit as prestador_cuit',
+      'p.tipo_prestador',
+      'e.nombre as especialidad_nombre',
+      'l.calle as lugar_calle',
+      'l.localidad as lugar_localidad',
+      'l.provincia as lugar_provincia',
+      'l.cp as lugar_cp'
+    );
+};
 
-  return {
-    id: String(a.id),
-    prestador: p ? `${p.first_name} ${p.last_name}` : '',
-    cuitCuil: p ? p.cuit : '',
-    tipoPrestador: p ? p.tipo_prestador : '',
-    especialidad: esp ? esp.nombre : '',
-    idEspecialidad: a.especialidad_id,
-    lugar: lugar ? `${lugar.calle}, ${lugar.localidad || ''}` : '',
-    idLugar: a.lugar_id,
-    lugarCompleto: lugar ? {
-      idLugar: lugar.id,
-      direccion: lugar.calle,
-      localidad: lugar.localidad || '',
-      provincia: lugar.provincia || '',
-      codigoPostal: lugar.cp || ''
-    } : null,
-    duracion: a.duracion_turno,
-    fechaInicio: a.fecha_inicio || '',
-    fechaFin: a.fecha_fin || null,
-    estaActivo: a.esta_activo,
-    bloques: a.bloques || [],
-    dias: a.bloques ? [...new Set(a.bloques.flatMap(b => b.dias))] : [],
-    diasCompletos: a.bloques ? [...new Set(a.bloques.flatMap(b => b.dias))] : [],
-    horario: '' // mocked summary
-  };
+const serializeAgenda = (row) => ({
+  id: String(row.id),
+  prestador: row.prestador_first_name
+    ? `${row.prestador_first_name} ${row.prestador_last_name}`.trim()
+    : '',
+  cuitCuil: row.prestador_cuit || '',
+  tipoPrestador: row.tipo_prestador || '',
+  especialidad: row.especialidad_nombre || '',
+  idEspecialidad: row.especialidad_id,
+  lugar: row.lugar_calle
+    ? `${row.lugar_calle}, ${row.lugar_localidad || ''}`.trim().replace(/,$/, '')
+    : '',
+  idLugar: row.lugar_id,
+  lugarCompleto: row.lugar_calle ? {
+    idLugar: row.lugar_id,
+    direccion: row.lugar_calle,
+    localidad: row.lugar_localidad || '',
+    provincia: row.lugar_provincia || '',
+    codigoPostal: row.lugar_cp || ''
+  } : null,
+  duracion: row.duracion_turno,
+  fechaInicio: row.fecha_inicio || '',
+  fechaFin: row.fecha_fin || null,
+  estaActivo: row.esta_activo,
+  bloques: row.bloques || [],
+  dias: row.bloques ? [...new Set(row.bloques.flatMap(b => b.dias))] : [],
+  diasCompletos: row.bloques ? [...new Set(row.bloques.flatMap(b => b.dias))] : [],
+  horario: ''
+});
+
+const sendError = (res, e, context) => {
+  console.error(`[AGENDAS] Error en ${context}:`, e.message);
+  return res.status(500).json({ message: 'Error interno del servidor' });
+};
+
+// Devuelve el prestador_id del usuario autenticado, o null si es ADMIN
+const getPrestadorIdFromReq = async (req) => {
+  const role = req.user?.role;
+  if (role !== 'PRESTADOR') return null;
+  const userId = req.user?.id || req.user?.id_usuario;
+  const p = await db('prestadores').where('user_id', userId).first();
+  return p ? p.id : null;
 };
 
 const getAll = async (req, res) => {
   try {
     const { cuitCuil, idEspecialidad } = req.query;
-    let query = db('agendas');
-    
+    const filters = {};
+
     if (cuitCuil) {
       const p = await db('prestadores').where('cuit', cuitCuil).first();
-      if (p) query = query.where('prestador_id', p.id);
-      else return res.status(200).json([]);
+      if (!p) return res.status(200).json([]);
+      filters['a.prestador_id'] = p.id;
     }
     if (idEspecialidad) {
-      query = query.where('especialidad_id', idEspecialidad);
+      filters['a.especialidad_id'] = idEspecialidad;
     }
-    
-    const agendas = await query;
-    const promises = agendas.map(serializeAgenda);
-    const result = await Promise.all(promises);
-    return res.status(200).json(result);
+
+    const rows = await fetchAgendasWithJoins(filters);
+    return res.status(200).json(rows.map(serializeAgenda));
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'getAll');
   }
 };
 
 const getById = async (req, res) => {
   try {
-    const a = await db('agendas').where('id', req.params.id).first();
-    if (!a) return res.status(404).json({ error: 'Agenda not found' });
-    return res.status(200).json(await serializeAgenda(a));
+    const rows = await fetchAgendasWithJoins({ 'a.id': req.params.id });
+    if (!rows.length) return res.status(404).json({ message: 'Agenda no encontrada' });
+    return res.status(200).json(serializeAgenda(rows[0]));
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'getById');
   }
 };
 
 const create = async (req, res) => {
   try {
     const { cuitCuil, idEspecialidad, idLugar, duracionTurno, bloques, fechaInicio, fechaFin } = req.body;
-    
+
+    if (!cuitCuil) return res.status(400).json({ message: 'cuitCuil es requerido' });
+    if (!idEspecialidad) return res.status(400).json({ message: 'idEspecialidad es requerido' });
+    if (!idLugar) return res.status(400).json({ message: 'idLugar es requerido' });
+
     const p = await db('prestadores').where('cuit', cuitCuil).first();
-    if (!p) return res.status(404).json({ error: 'Prestador no encontrado' });
+    if (!p) return res.status(404).json({ message: 'Prestador no encontrado' });
+
+    // Un PRESTADOR solo puede crear agendas para sí mismo
+    if (req.user?.role === 'PRESTADOR') {
+      const userId = req.user?.id || req.user?.id_usuario;
+      const own = await db('prestadores').where('user_id', userId).first();
+      if (!own || own.id !== p.id) {
+        return res.status(403).json({ message: 'No tienes permiso para crear agendas de otro prestador' });
+      }
+    }
 
     const id = await db.transaction(async (trx) => {
       const [newId] = await trx('agendas').insert({
         prestador_id: p.id,
         especialidad_id: idEspecialidad,
         lugar_id: idLugar,
-        duracion_turno: duracionTurno || 30,
+        duracion_turno: duracionTurno ?? 30,
         fecha_inicio: fechaInicio || null,
         fecha_fin: fechaFin || null,
         bloques: JSON.stringify(bloques || [])
       }).returning('id');
 
-      const agendaId = newId.id || newId;
+      const agendaId = newId.id ?? newId;
       await createPrestadorAuditLog(trx, req, {
         prestadorId: p.id,
         action: 'agenda_create',
-        metadata: {
-          agendaId,
-          idEspecialidad,
-          idLugar,
-          duracionTurno: duracionTurno || 30,
-          fechaInicio: fechaInicio || null,
-          fechaFin: fechaFin || null
-        }
+        metadata: { agendaId, idEspecialidad, idLugar, duracionTurno: duracionTurno ?? 30 }
       });
       return agendaId;
     });
 
-    const created = await db('agendas').where('id', id).first();
-    return res.status(201).json(await serializeAgenda(created));
+    const rows = await fetchAgendasWithJoins({ 'a.id': id });
+    return res.status(201).json(serializeAgenda(rows[0]));
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'create');
   }
 };
 
 const update = async (req, res) => {
   try {
-    const { cuitCuil, idEspecialidad, idLugar, duracionTurno, bloques, fechaInicio, fechaFin } = req.body;
-    const a = await db('agendas').where('id', req.params.id).first();
-    if (!a) return res.status(404).json({ error: 'Agenda not found' });
+    const existing = await db('agendas').where('id', req.params.id).first();
+    if (!existing) return res.status(404).json({ message: 'Agenda no encontrada' });
 
-    const updateData = {};
-    if (cuitCuil) {
-       const p = await db('prestadores').where('cuit', cuitCuil).first();
-       if (p) updateData.prestador_id = p.id;
+    // Un PRESTADOR solo puede modificar sus propias agendas
+    if (req.user?.role === 'PRESTADOR') {
+      const userId = req.user?.id || req.user?.id_usuario;
+      const own = await db('prestadores').where('user_id', userId).first();
+      if (!own || own.id !== existing.prestador_id) {
+        return res.status(403).json({ message: 'No tienes permiso para modificar agendas de otro prestador' });
+      }
     }
-    if (idEspecialidad) updateData.especialidad_id = idEspecialidad;
-    if (idLugar) updateData.lugar_id = idLugar;
-    if (duracionTurno) updateData.duracion_turno = duracionTurno;
+
+    const { cuitCuil, idEspecialidad, idLugar, duracionTurno, bloques, fechaInicio, fechaFin, estaActivo } = req.body;
+    const updateData = {};
+
+    if (cuitCuil) {
+      const p = await db('prestadores').where('cuit', cuitCuil).first();
+      if (p) updateData.prestador_id = p.id;
+    }
+    if (idEspecialidad !== undefined) updateData.especialidad_id = idEspecialidad;
+    if (idLugar !== undefined) updateData.lugar_id = idLugar;
+    if (duracionTurno !== undefined) updateData.duracion_turno = duracionTurno;
     if (fechaInicio !== undefined) updateData.fecha_inicio = fechaInicio;
     if (fechaFin !== undefined) updateData.fecha_fin = fechaFin;
-    if (bloques) updateData.bloques = JSON.stringify(bloques);
+    if (bloques !== undefined) updateData.bloques = JSON.stringify(bloques);
+    if (estaActivo !== undefined) updateData.esta_activo = estaActivo;
 
     if (Object.keys(updateData).length > 0) {
       await db.transaction(async (trx) => {
         await trx('agendas').where('id', req.params.id).update(updateData);
         await createPrestadorAuditLog(trx, req, {
-          prestadorId: updateData.prestador_id || a.prestador_id,
+          prestadorId: updateData.prestador_id || existing.prestador_id,
           action: 'agenda_update',
-          metadata: {
-            agendaId: a.id,
-            previousPrestadorId: a.prestador_id,
-            changedFields: Object.keys(updateData)
-          }
+          metadata: { agendaId: existing.id, changedFields: Object.keys(updateData) }
         });
       });
     }
-    
-    const updated = await db('agendas').where('id', req.params.id).first();
-    return res.status(200).json(await serializeAgenda(updated));
+
+    const rows = await fetchAgendasWithJoins({ 'a.id': req.params.id });
+    return res.status(200).json(serializeAgenda(rows[0]));
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'update');
   }
 };
 
 const remove = async (req, res) => {
   try {
-    const a = await db('agendas').where('id', req.params.id).first();
-    if (!a) return res.status(404).json({ error: 'Agenda not found' });
+    const existing = await db('agendas').where('id', req.params.id).first();
+    if (!existing) return res.status(404).json({ message: 'Agenda no encontrada' });
 
     await db.transaction(async (trx) => {
       await trx('agendas').where('id', req.params.id).del();
       await createPrestadorAuditLog(trx, req, {
-        prestadorId: a.prestador_id,
+        prestadorId: existing.prestador_id,
         action: 'agenda_delete',
         reason: req.body?.motivo || null,
-        metadata: { agendaId: a.id }
+        metadata: { agendaId: existing.id }
       });
     });
-    return res.status(200).json({ message: 'Deleted' });
+    return res.status(200).json({ message: 'Agenda eliminada' });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return sendError(res, e, 'remove');
   }
 };
 
