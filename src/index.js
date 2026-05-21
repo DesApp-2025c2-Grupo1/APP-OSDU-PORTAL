@@ -8,6 +8,7 @@ const swaggerDocument = require('./config/swagger.config');
 
 const authRoute = require('./modules/auth/routes/auth.route');
 const affiliatesRoute = require('./modules/affiliates/routes/affiliates.route');
+const familyGroupRoute = require('./modules/affiliates/routes/family_group.route');
 const prestadoresRoute = require('./modules/prestadores/routes/prestadores.route');
 const agendasRoute = require('./modules/agendas/routes/agendas.route');
 const plansRoute = require('./modules/plans/routes/plans.route');
@@ -53,6 +54,7 @@ const authLimiter = rateLimit({
 app.use('/auth', authLimiter, authRoute);
 app.use('/affiliates', affiliatesRoute);
 app.use('/admin/affiliates', affiliatesRoute);
+app.use('/family-group', familyGroupRoute);
 app.use('/prestadores', prestadoresRoute);
 // Alias temporal para no romper el frontend actual mientras migra sus URLs.
 app.use('/providers', prestadoresRoute);
