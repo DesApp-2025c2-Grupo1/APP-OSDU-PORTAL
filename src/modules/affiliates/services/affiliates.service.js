@@ -103,11 +103,6 @@ const getAffiliatesList = async (req, res) => {
   try {
     const { status } = req.query;
 
-    // Solo ADMIN puede listar todos los afiliados o filtrar por estado
-    if (req.user.role !== 'ADMIN') {
-      return res.status(403).json({ message: 'Permisos insuficientes' });
-    }
-
     if (status !== undefined) {
       const parsedStatus = status === 'true' || status === true;
       const affiliates = await affiliateRepository.getAffiliatesByStatus(parsedStatus);
