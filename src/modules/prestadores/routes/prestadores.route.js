@@ -6,7 +6,6 @@ const adminProvidersService = require('../services/admin.providers.service');
 const authorize = require('../../auth/middleware/token.middleware');
 
 router.post('/login', prestadoresService.login);
-router.post('/prestadores/login', prestadoresService.login);
 
 router.get('/dashboard/stats', authorize('PRESTADOR'), prestadoresService.getDashboardStats);
 
