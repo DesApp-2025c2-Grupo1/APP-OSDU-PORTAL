@@ -567,15 +567,26 @@ const serializeAppointment = (row) => ({
   },
 });
 
+const resolveTargetAffiliate = async (loggedAffiliate, afiliadoId) => {
+  if (!afiliadoId || String(afiliadoId) === String(loggedAffiliate.id)) return loggedAffiliate;
+  const holderId = loggedAffiliate.holder_affiliate_id || loggedAffiliate.id;
+  const family = await affiliateRepository.getFamilyByHolderId(holderId);
+  const target = family.find((m) => String(m.id) === String(afiliadoId));
+  if (!target) throw Object.assign(new Error('No tenés permiso para gestionar este afiliado'), { status: 403 });
+  return target;
+};
+
 const getMyAppointments = async (req, res) => {
   try {
     const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
     if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
 
-    const { status } = req.query;
-    const rows = await affiliateRepository.getAppointmentsByAffiliate(affiliate.id, status || null);
+    const { status, afiliadoId } = req.query;
+    const target = await resolveTargetAffiliate(affiliate, afiliadoId);
+    const rows = await affiliateRepository.getAppointmentsByAffiliate(target.id, status || null);
     return res.status(200).json(rows.map(serializeAppointment));
   } catch (error) {
+    if (error.status === 403) return res.status(403).json({ message: error.message });
     console.error('[AFFILIATES] Error getMyAppointments:', error.message);
     return res.status(500).json({ message: 'Error al obtener los turnos' });
   }
@@ -631,7 +642,8 @@ const bookAppointment = async (req, res) => {
     const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
     if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
 
-    const { agendaId, fecha, horaIni, horaFin, motivo } = req.body;
+    const { agendaId, fecha, horaIni, horaFin, motivo, afiliadoId } = req.body;
+    const target = await resolveTargetAffiliate(affiliate, afiliadoId);
 
     if (!agendaId) return res.status(400).json({ message: 'agendaId es requerido' });
     assertISODate(fecha);
@@ -653,8 +665,8 @@ const bookAppointment = async (req, res) => {
 
     const appointment = await affiliateRepository.createAffiliateAppointment({
       prestadorId: agenda.prestador_id,
-      affiliateId: affiliate.id,
-      affiliateName: `${affiliate.first_name} ${affiliate.last_name}`,
+      affiliateId: target.id,
+      affiliateName: `${target.first_name} ${target.last_name}`,
       agendaId: agenda.id,
       especialidadId: agenda.especialidad_id,
       lugarId: agenda.lugar_id,
@@ -664,9 +676,9 @@ const bookAppointment = async (req, res) => {
       motivo: String(motivo).trim(),
     });
 
-    // Notificación al afiliado
+    // Notificación al titular (quien tiene el email de sesión)
     await notify('APPT_CREATE', affiliate.email, {
-      name: `${affiliate.first_name} ${affiliate.last_name}`.trim(),
+      name: `${target.first_name} ${target.last_name}`.trim(),
       date: fecha,
       time: `${horaIni} - ${horaFin}`,
       doctor: '',
@@ -699,8 +711,11 @@ const cancelAppointment = async (req, res) => {
     const appointment = await affiliateRepository.getAppointmentById(id);
     if (!appointment) return res.status(404).json({ message: 'Turno no encontrado' });
 
-    // IDOR: verificar que el turno pertenece al afiliado autenticado
-    if (appointment.affiliate_id !== affiliate.id)
+    // Verificar que el turno pertenece al afiliado autenticado o a un familiar
+    const holderId = affiliate.holder_affiliate_id || affiliate.id;
+    const family = await affiliateRepository.getFamilyByHolderId(holderId);
+    const familyIds = family.map((m) => m.id);
+    if (!familyIds.includes(appointment.affiliate_id))
       return res.status(403).json({ message: 'No tenés permiso para cancelar este turno' });
 
     if (appointment.status !== 'reservado')
@@ -887,45 +902,44 @@ const adminUpdateReintegroStatus = async (req, res) => {
   }
 };
 
-const updateAffiliate = async (req, res) => {
+const getAffiliateByDocument = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { first_name, last_name, birth_date, address, city, province, postal_code, phone, email, plan_id } = req.body;
-
-    const affiliate = await affiliateRepository.getAffiliateById(id);
+    const affiliate = await affiliateRepository.getAffiliateByIdentifier(req.params.identifier);
     if (!affiliate) return res.status(404).json({ message: 'El afiliado no existe' });
+    return res.status(200).json(await serializeAffiliate(affiliate));
+  } catch (error) {
+    console.error('[AFFILIATES] Error en getAffiliateByDocument:', error.message);
+    return res.status(500).json({ message: 'Error interno al obtener el afiliado' });
+  }
+};
 
-    const patch = {};
-    if (first_name !== undefined) patch.first_name = String(first_name).trim();
-    if (last_name !== undefined) patch.last_name = String(last_name).trim();
-    if (birth_date !== undefined) patch.birth_date = birth_date;
-    if (address !== undefined) patch.address = String(address).trim();
-    if (city !== undefined) patch.city = String(city).trim();
-    if (province !== undefined) patch.province = String(province).trim();
-    if (postal_code !== undefined) patch.postal_code = String(postal_code).trim();
-    if (phone !== undefined) patch.phone = String(phone).trim();
-    if (email !== undefined) patch.email = String(email).trim().toLowerCase();
-    if (plan_id !== undefined) patch.plan_id = Number(plan_id);
-
-    if (Object.keys(patch).length === 0) {
-      return res.status(400).json({ message: 'No se enviaron campos para actualizar' });
+const getMyProfile = async (req, res) => {
+  try {
+    const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
+    if (!affiliate) {
+      return res.status(404).json({ message: 'Afiliado no encontrado' });
     }
 
-    patch.updated_at = new Date();
-    await db('affiliates').where({ id }).update(patch);
+    const holderId = affiliate.holder_affiliate_id || affiliate.id;
+    const family = await affiliateRepository.getFamilyByHolderId(holderId);
 
-    const updated = await affiliateRepository.getAffiliateById(id);
-    return res.status(200).json(updated);
+    return res.status(200).json({
+      afiliado: await serializeAffiliate(affiliate),
+      grupoFamiliar: await serializeAffiliates(family),
+    });
   } catch (error) {
-    console.error('[AFFILIATES] Error en updateAffiliate:', error.message);
-    return res.status(500).json({ message: 'Error interno al actualizar el afiliado' });
+    console.error('[AFFILIATES] Error en getMyProfile:', error.message);
+    return res.status(500).json({ message: 'Error interno al obtener el perfil' });
   }
 };
 
 module.exports = {
   createAffiliate,
   getAffiliatesList,
+  getAffiliatesByStatus: getAffiliatesList,
   getAffiliateById,
+  getAffiliateByDocument,
+  getMyProfile,
   updateAffiliate,
   removeAffiliate,
   getFamilyGroup,

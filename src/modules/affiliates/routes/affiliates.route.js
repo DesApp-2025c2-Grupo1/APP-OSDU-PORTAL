@@ -29,6 +29,9 @@ const upload = require('../../../middlewares/upload');
 router.get('/', authorize('ADMIN'), affiliatesService.getAffiliatesList);
 
 
+// Perfil y grupo familiar del afiliado autenticado
+router.get('/me', authorize('AFILIADO'), affiliatesService.getMyProfile);
+
 // Turnos del afiliado autenticado
 router.get('/turnos/disponibles', authorize('AFILIADO'), affiliatesService.getAvailableSlots);
 router.get('/turnos', authorize('AFILIADO'), affiliatesService.getMyAppointments);
