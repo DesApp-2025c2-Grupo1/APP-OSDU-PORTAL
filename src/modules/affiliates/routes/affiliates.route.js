@@ -26,6 +26,12 @@ const upload = require('../../../middlewares/upload');
  *       200:
  *         description: Afiliados obtenidos correctamente
  */
+router.get('/', authorize('ADMIN'), affiliatesService.getAffiliatesList);
+
+
+// Perfil y grupo familiar del afiliado autenticado
+router.get('/me', authorize('AFILIADO'), affiliatesService.getMyProfile);
+
 // Turnos del afiliado autenticado
 router.get('/turnos/disponibles', authorize('AFILIADO'), affiliatesService.getAvailableSlots);
 router.get('/turnos', authorize('AFILIADO'), affiliatesService.getMyAppointments);
@@ -70,7 +76,6 @@ router.get('/', authorize('ADMIN'), affiliatesService.getAffiliatesByStatus);
  */
 router.get('/:id', authorize('ADMIN'), affiliatesService.getAffiliateById);
 router.put('/:id', authorize('ADMIN'), affiliatesService.updateAffiliate);
-router.delete('/:id', authorize('ADMIN'), affiliatesService.removeAffiliate);
 
 /**
  * @swagger
@@ -161,22 +166,9 @@ router.put('/:id/deactivate', authorize('ADMIN'), affiliatesService.deactivateAf
  *       200:
  *         description: Afiliado creado correctamente
  */
-router.post('/', upload.fields([
+router.post('/', authorize('ADMIN'), upload.fields([
   { name: 'dni_document', maxCount: 1 },
   { name: 'payslip_document', maxCount: 1 }
 ]), affiliatesService.createAffiliate);
 
-
-/**
- * @swagger
- * /affiliates:
- *   get:
- *     summary: Obtiene todos los afiliados
- *     tags: [Affiliates]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Afiliados obtenidos correctamente
- */
 module.exports = router;
