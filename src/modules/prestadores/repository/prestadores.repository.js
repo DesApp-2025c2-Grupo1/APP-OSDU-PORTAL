@@ -205,13 +205,14 @@ const getAppointmentsByDate = async (prestadorId, date, trx = db) => {
 };
 
 const getAppointmentsByMonth = async (prestadorId, year, month, trx = db) => {
-  // SQLite and Postgres support might vary for native dates, but we can just use string LIKE for `YYYY-MM-%` since `appointment_date` is likely standard YYYY-MM-DD
-  const prefix = `${year}-${String(month).padStart(2, '0')}-%`;
+  const paddedMonth = String(month).padStart(2, '0');
+  // Usamos EXTRACT para compatibilidad con PostgreSQL (campos DATE no soportan LIKE)
   return trx('prestador_appointments')
     .where('prestador_id', prestadorId)
-    .andWhere('fecha_turno', 'like', prefix)
-    .select('fecha_turno as appointment_date')
-    .groupBy('fecha_turno');
+    .whereRaw('EXTRACT(YEAR FROM appointment_date) = ?', [Number(year)])
+    .whereRaw('EXTRACT(MONTH FROM appointment_date) = ?', [Number(paddedMonth)])
+    .select('appointment_date')
+    .groupBy('appointment_date');
 };
 
 const createAppointment = async (prestadorId, data, trx = db) => {
@@ -474,7 +475,7 @@ const getAllRequestsForAdmin = async ({ status, page = 1, limit = 20 } = {}, trx
   let base = trx('prestador_requests as pr')
     .leftJoin('prestadores as p', 'pr.prestador_id', 'p.id')
     .leftJoin('afiliados as a', 'pr.afiliado_id', 'a.id')
-    .whereNotNull('pr.prestador_id');   // solo solicitudes iniciadas por prestador
+    .whereNotNull('pr.prestador_id');
   if (status) base = base.where('pr.estado', status);
 
   const countResult = await base.clone().count('pr.id as count').first();
@@ -524,7 +525,21 @@ const updateRequestStatusAdmin = async (id, { status, motivo, userId }, trx = db
   return trx('prestador_requests').select(requestColumns).where({ id: req.id }).first();
 };
 
+const hasAppointmentWithAffiliate = async (prestadorId, affiliateId, trx = db) => {
+  return trx('prestador_appointments')
+    .where({ affiliate_id: affiliateId, prestador_id: prestadorId })
+    .first();
+};
+
+const getSituationById = async (situationId, trx = db) => {
+  return trx('prestador_affiliate_situations')
+    .where({ id: situationId })
+    .first();
+};
+
 module.exports = {
+  hasAppointmentWithAffiliate,
+  getSituationById,
   getPrestadorByCuit,
   getPrestadorByUserId,
   getDefaultPrestador,

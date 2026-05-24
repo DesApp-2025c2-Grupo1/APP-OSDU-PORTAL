@@ -1,68 +1,140 @@
+# ─── Docker Compose — DESARROLLO ─────────────────────────────────────────────
+# Uso: docker compose up
+# Incluye: hot-reload, mailpit (UI en localhost:8025), pgadmin (localhost:8080)
+# ─────────────────────────────────────────────────────────────────────────────
+
 services:
-  app-unahur-portal:
-    profiles:
-      - app
-    build: .
-    image: unahur/app-portal:1.0
-    container_name: app-unahur-portal
+
+  # ── API ────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: deps          # Usa solo la etapa de deps para dev (más rápido rebuild)
+    image: unahur/portal-api:dev
+    container_name: portal-api-dev
+    restart: unless-stopped
     ports:
-      - "${PORT}:${PORT}"
+      - "${PORT:-5000}:5000"
     environment:
-      PORT: ${PORT}
-      DB_HOST: app-unahur-portal-db
+      NODE_ENV: development
+      PORT: 5000
+      DB_HOST: db
       DB_PORT: 5432
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      JWT_SECRET: ${JWT_SECRET}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-app-unahur-portal}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET es requerido}
+      DEFAULT_USER_PASSWORD: ${DEFAULT_USER_PASSWORD:?DEFAULT_USER_PASSWORD es requerido}
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
-      EMAIL_FROM: ${EMAIL_FROM}
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@unahur-portal.local}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:4200}
     volumes:
-      - ./:/app 
-      - /app/node_modules 
+      # Hot-reload: monta el código fuente (solo src, no node_modules)
+      - ./src:/app/src:ro
+      - ./knexfile.js:/app/knexfile.js:ro
+      # Uploads persistentes en dev
+      - uploads_dev:/app/public/uploads
     networks:
-      - ms-unahur-portal-network
+      - portal-network
     depends_on:
-      - app-unahur-portal-db
+      db:
+        condition: service_healthy
+    command: ["node", "--watch", "src/server.js"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  app-unahur-portal-db:
-    image: postgres:15
-    container_name: app-unahur-portal-db
+  # ── Base de datos ──────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: portal-db-dev
+    restart: unless-stopped
     ports:
-      - "${DB_PORT_EXTERNAL:-5433}:5432"
+      - "${DB_PORT_EXTERNAL:-5433}:5432"   # Expuesto solo en dev para herramientas locales
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-app-unahur-portal}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - db_data_dev:/var/lib/postgresql/data
     networks:
-      - ms-unahur-portal-network
+      - portal-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-app-unahur-portal}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  app-unahur-pgadmin:
-    profiles:
-      - tools
-    image: dpage/pgadmin4
-    container_name: app-unahur-pgadmin
+  # ── Mailpit (emulador SMTP para dev) ───────────────────────────────────────
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: portal-mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"   # UI web
+      - "1025:1025"   # SMTP
+    networks:
+      - portal-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ── pgAdmin (herramienta visual DB, perfil tools) ──────────────────────────
+  pgadmin:
+    profiles: ["tools"]
+    image: dpage/pgadmin4:latest
+    container_name: portal-pgadmin
+    restart: unless-stopped
     ports:
       - "8080:80"
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-adminpassword}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
     networks:
-      - ms-unahur-portal-network
+      - portal-network
+    depends_on:
+      - db
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
 
-  mailpit:
-    image: axllent/mailpit
-    container_name: mailpit
-    ports:
-      - "8025:8025" # UI
-      - "1025:1025" # SMTP
-    networks:
-      - ms-unahur-portal-network
+# ─── Volumes ─────────────────────────────────────────────────────────────────
+volumes:
+  db_data_dev:
+    name: portal-db-data-dev
+  uploads_dev:
+    name: portal-uploads-dev
+  pgadmin_data:
+    name: portal-pgadmin-data
 
-
+# ─── Networks ─────────────────────────────────────────────────────────────────
 networks:
-  ms-unahur-portal-network:
+  portal-network:
+    name: portal-network-dev
     driver: bridge
