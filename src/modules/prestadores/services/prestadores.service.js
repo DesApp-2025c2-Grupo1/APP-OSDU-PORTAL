@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { generateToken } = require('../../auth/utils/jwt.service');
+const { getSessionCookieOptions } = require('../../auth/utils/cookie-options');
 const { notify } = require('../../mail/notification.service');
 const prestadoresRepository = require('../repository/prestadores.repository');
 const db = require('../../../database/db');
@@ -251,12 +252,7 @@ const login = async (req, res) => {
       role_name: prestador.role_name,
     });
 
-    res.cookie('token_prestador', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000,
-    });
+    res.cookie('token_prestador', token, getSessionCookieOptions());
 
     return res.status(200).json({
       message: 'OK',

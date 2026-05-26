@@ -714,7 +714,8 @@ const cancelAppointment = async (req, res) => {
     // Verificar que el turno pertenece al afiliado autenticado o a un familiar
     const holderId = affiliate.holder_affiliate_id || affiliate.id;
     const family = await affiliateRepository.getFamilyByHolderId(holderId);
-    const familyIds = family.map((m) => m.id);
+    const familyIds = Array.isArray(family) ? family.map((m) => m.id) : [holderId];
+    if (!familyIds.includes(holderId)) familyIds.push(holderId);
     if (!familyIds.includes(appointment.affiliate_id))
       return res.status(403).json({ message: 'No tenés permiso para cancelar este turno' });
 
@@ -737,6 +738,7 @@ const cancelAppointment = async (req, res) => {
 
     return res.status(200).json({
       id: updated.id,
+      status: updated.status,
       estado: updated.status,
       motivoCancelacion: updated.cancellation_reason,
     });

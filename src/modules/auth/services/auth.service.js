@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const affiliateRepository = require('../../affiliates/repository/affiliate.repository');
 const authRepository = require('../repository/auth.repository');
 const { generateToken } = require('../utils/jwt.service');
+const { getSessionCookieOptions, getClearSessionCookieOptions } = require('../utils/cookie-options');
 const { notify } = require('../../mail/notification.service');
 
 const PASSWORD_MIN_LENGTH = 8;
@@ -50,12 +51,7 @@ const login = async (req, res) => {
 
         const cookieName = user.role_name === 'ADMIN' ? 'token_admin' : 'token_affiliate';
 
-        res.cookie(cookieName, token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 24 * 60 * 60 * 1000
-        });
+        res.cookie(cookieName, token, getSessionCookieOptions());
 
         return res.status(200).json({
             message: 'OK',
@@ -75,14 +71,13 @@ const login = async (req, res) => {
 
 const changePassword = async (req, res) => {
     try {
-        const { currentPassword, newPassword } = req.body;
+        const currentPassword = req.body.currentPassword || req.body.passwordActual;
+        const newPassword = req.body.newPassword || req.body.nuevaPassword;
         const userId = req.user.id;
 
         if (!currentPassword || !newPassword) {
             return res.status(400).json({ message: 'La contraseña actual y la nueva contraseña son requeridas' });
         }
-        validatePasswordPolicy(newPassword);
-
         if (newPassword.length < PASSWORD_MIN_LENGTH) {
             return res.status(400).json({ message: `La nueva contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres` });
         }
@@ -140,13 +135,8 @@ const me = async (req, res) => {
     }
 };
 
-const COOKIE_OPTIONS = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
-};
-
 const logout = async (req, res) => {
+    const COOKIE_OPTIONS = getClearSessionCookieOptions();
     res.clearCookie('token_admin', COOKIE_OPTIONS);
     res.clearCookie('token_affiliate', COOKIE_OPTIONS);
     res.clearCookie('token_prestador', COOKIE_OPTIONS);

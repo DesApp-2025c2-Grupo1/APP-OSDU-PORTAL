@@ -38,6 +38,7 @@ COPY . .
 
 # Crear directorio de uploads y asignar propietario al usuario node (no root)
 RUN mkdir -p public/uploads && \
+    chmod +x docker-entrypoint.sh && \
     chown -R node:node /app
 
 # Usar usuario no-root (node ya viene en la imagen oficial)
@@ -52,6 +53,8 @@ EXPOSE 5000
 # Healthcheck: verifica que el endpoint /health responde
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD wget -qO- http://localhost:5000/health || exit 1
+
+ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # Ejecutar directamente con node (más rápido que npm, señales POSIX correctas)
 CMD ["node", "src/server.js"]
