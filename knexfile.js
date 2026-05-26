@@ -1,5 +1,13 @@
 require('dotenv').config();
 
+const getSslConfig = () => {
+  if (process.env.DB_SSL === 'true') {
+    return { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' };
+  }
+
+  return false;
+};
+
 /**
  * @type { Object.<string, import("knex").Knex.Config> }
  */
@@ -30,7 +38,7 @@ module.exports = {
       database: process.env.DB_NAME,
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
-      ssl: { rejectUnauthorized: false }
+      ssl: getSslConfig()
     },
     pool: { min: 2, max: 10 },
     migrations: {
@@ -48,7 +56,7 @@ module.exports = {
       database: process.env.DB_NAME,
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
-      ssl: { rejectUnauthorized: true }
+      ssl: getSslConfig()
     },
     pool: { min: 2, max: 10 },
     migrations: {
