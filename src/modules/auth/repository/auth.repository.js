@@ -34,11 +34,17 @@ const getUserById = async (id, trx = db) => {
 // Igual que getUserById pero incluye el hash de contraseña y first_name para changePassword
 const getUserByIdFull = async (id, trx = db) => {
     if (!id) return null;
-    return trx('users')
-        .select('users.id', 'users.email', 'users.password', 'users.first_name', 'users.must_change_password', 'roles.role_name')
-        .join('user_roles', 'users.id', 'user_roles.user_id')
-        .join('roles', 'user_roles.role_id', 'roles.id')
-        .where('users.id', id)
+    return trx('usuarios')
+        .select(
+            'usuarios.id',
+            'usuarios.email',
+            'usuarios.contrasenia as password',
+            'usuarios.debe_cambiar_password as must_change_password',
+            'roles.nombre_rol as role_name'
+        )
+        .join('usuarios_roles', 'usuarios.id', 'usuarios_roles.usuario_id')
+        .join('roles', 'usuarios_roles.rol_id', 'roles.id')
+        .where('usuarios.id', id)
         .first();
 }
 
