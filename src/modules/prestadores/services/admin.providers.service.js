@@ -390,6 +390,63 @@ const buildFilteredQuery = (queryParams) => {
   return query.orderBy('prestadores.creado_en', 'desc').orderBy('prestadores.id', 'desc');
 };
 
+const serializeCartillaItem = async (p, trx = db) => {
+  const [places, specialties] = await Promise.all([
+    trx('lugares_atencion').where('prestador_id', p.id).orderBy('id'),
+    trx('prestador_especialidades')
+      .join('especialidades', 'prestador_especialidades.especialidad_id', 'especialidades.id')
+      .where('prestador_especialidades.prestador_id', p.id)
+      .select('especialidades.nombre')
+      .orderBy('especialidades.nombre'),
+  ]);
+
+  return {
+    id: p.id,
+    nombreCompleto: `${p.nombre} ${p.apellido}`.trim(),
+    tipoPrestador: p.tipo_prestador || 'profesional',
+    telefono: p.telefono || parseJsonArray(p.telefonos)[0] || '',
+    especialidades: specialties.map((e) => e.nombre),
+    lugaresAtencion: places.map((lugar) => ({
+      calle: lugar.calle,
+      localidad: lugar.localidad,
+      provincia: lugar.provincia,
+      horarios: parseJsonArray(lugar.horarios),
+    })),
+  };
+};
+
+const getCartilla = async (req, res) => {
+  try {
+    const page = Number(req.query.page || 0);
+    const limit = Math.min(Number(req.query.limit || 20), 100);
+    const params = { ...req.query, estado: 'activo' };
+    const baseQuery = buildFilteredQuery(params);
+
+    if (page > 0) {
+      const countQuery = baseQuery.clone().clearSelect().clearOrder().countDistinct('prestadores.id as total').first();
+      const [{ total }, prestadores] = await Promise.all([
+        countQuery,
+        baseQuery.clone().limit(limit).offset((page - 1) * limit),
+      ]);
+      const data = await Promise.all(prestadores.map((p) => serializeCartillaItem(p)));
+      const numericTotal = Number(total || 0);
+      return res.status(200).json({
+        data,
+        total: numericTotal,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(numericTotal / limit)),
+      });
+    }
+
+    const prestadores = await baseQuery;
+    const result = await Promise.all(prestadores.map((p) => serializeCartillaItem(p)));
+    return res.status(200).json(result);
+  } catch (error) {
+    return sendError(res, error, 'Error getCartilla:');
+  }
+};
+
 const getAll = async (req, res) => {
   try {
     const page = Number(req.query.page || 0);
@@ -894,6 +951,7 @@ const getAgendasByPlaces = async (req, res) => {
 };
 
 module.exports = {
+  getCartilla,
   getAll,
   getByCuit,
   getOwnProfile,

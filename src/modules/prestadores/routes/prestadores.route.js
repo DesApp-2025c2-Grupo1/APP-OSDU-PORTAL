@@ -38,6 +38,8 @@ router.delete('/situaciones/afiliado/:affiliateId/:situationId', authorize('PRES
 
 router.get('/profile', authorize('PRESTADOR'), adminProvidersService.getOwnProfile);
 
+router.get('/cartilla', adminProvidersService.getCartilla);
+
 // Admin Providers CRUD
 router.get('/', authorize('ADMIN'), adminProvidersService.getAll);
 router.post('/', authorize('ADMIN'), adminProvidersService.create);
