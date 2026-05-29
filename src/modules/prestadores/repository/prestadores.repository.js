@@ -475,7 +475,7 @@ const getAllRequestsForAdmin = async ({ status, page = 1, limit = 20 } = {}, trx
   let base = trx('prestador_requests as pr')
     .leftJoin('prestadores as p', 'pr.prestador_id', 'p.id')
     .leftJoin('afiliados as a', 'pr.afiliado_id', 'a.id')
-    .whereNotNull('pr.prestador_id');
+    .whereNot('pr.tipo', 'Reintegro');
   if (status) base = base.where('pr.estado', status);
 
   const countResult = await base.clone().count('pr.id as count').first();
@@ -519,9 +519,10 @@ const updateRequestStatusAdmin = async (id, { status, motivo, userId }, trx = db
   }
   const [req] = await trx('prestador_requests')
     .where({ id })
-    .whereNotNull('prestador_id')
+    .whereNot('tipo', 'Reintegro')
     .update(patch)
     .returning('*');
+  if (!req) return null;
   return trx('prestador_requests').select(requestColumns).where({ id: req.id }).first();
 };
 

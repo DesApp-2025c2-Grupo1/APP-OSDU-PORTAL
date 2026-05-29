@@ -31,6 +31,7 @@ const affiliateColumns = [
     'afiliados.plan_id',
     'afiliados.afiliado_titular_id as holder_affiliate_id',
     'afiliados.parentesco as relationship',
+    'afiliados.alta_programada_en as activation_scheduled_at',
     'afiliados.baja_programada_en as deactivation_scheduled_at',
     'afiliados.ruta_documento_dni as dni_document_path',
     'afiliados.ruta_recibo_sueldo as payslip_document_path',
@@ -113,6 +114,7 @@ const updateAffiliateById = async (id, patch, trx = db) => {
         status: 'activo',
         holder_affiliate_id: 'afiliado_titular_id',
         relationship: 'parentesco',
+        activation_scheduled_at: 'alta_programada_en',
         deactivation_scheduled_at: 'baja_programada_en',
     };
     const normalizedPatch = Object.entries(patch).reduce((acc, [key, value]) => {
@@ -137,9 +139,23 @@ const getFamilyByHolderId = async (holderId, trx = db) => {
 
 const getScheduledDeletions = async (trx = db) => {
     return affiliateWithPlanQuery(trx)
-        .whereNotNull('afiliados.baja_programada_en')
-        .orderBy('afiliados.baja_programada_en', 'asc');
+        .where(function () {
+            this.whereNotNull('afiliados.baja_programada_en')
+                .orWhereNotNull('afiliados.alta_programada_en');
+        })
+        .orderByRaw('COALESCE(afiliados.alta_programada_en, afiliados.baja_programada_en) asc');
 }
+
+const activateDueScheduledAffiliates = async (now = new Date(), trx = db) => {
+    return trx('afiliados')
+        .whereNotNull('alta_programada_en')
+        .where('alta_programada_en', '<=', now)
+        .update({
+            activo: true,
+            alta_programada_en: null,
+            actualizado_en: trx.fn.now(),
+        });
+};
 
 const getAppointmentsByAffiliate = async (affiliateId, status = null, trx = db) => {
     let query = trx('prestador_appointments as pa')
@@ -221,28 +237,32 @@ const cancelAppointment = async (id, motivo, trx = db) => {
     return getAppointmentById(updated.id, trx);
 };
 
-// ── Reintegros ────────────────────────────────────────────────────────────────
+// ── Trámites iniciados por afiliados ──────────────────────────────────────────
+
+const requestSelectColumns = [
+    '*',
+    'afiliado_id as affiliate_id',
+    'nro_solicitud as request_number',
+    'afiliado_nombre as affiliate_name',
+    'tipo as type',
+    'estado as status',
+    'fecha_solicitud as request_date',
+    'descripcion as description',
+    'motivo_estado as status_reason',
+    'respuesta_afiliado as affiliate_response',
+    'creado_en as created_at',
+    'actualizado_en as updated_at'
+];
+
+const affiliateRequestQuery = (affiliateId, type, trx = db) => trx('prestador_requests')
+    .select(requestSelectColumns)
+    .where({ afiliado_id: affiliateId, tipo: type })
+    .whereNull('prestador_id')
+    .orderBy('fecha_solicitud', 'desc')
+    .orderBy('id', 'desc');
 
 const getReintegrosByAffiliate = async (affiliateId, trx = db) => {
-    return trx('prestador_requests')
-        .select(
-            '*',
-            'afiliado_id as affiliate_id',
-            'nro_solicitud as request_number',
-            'afiliado_nombre as affiliate_name',
-            'tipo as type',
-            'estado as status',
-            'fecha_solicitud as request_date',
-            'descripcion as description',
-            'motivo_estado as status_reason',
-            'respuesta_afiliado as affiliate_response',
-            'creado_en as created_at',
-            'actualizado_en as updated_at'
-        )
-        .where({ afiliado_id: affiliateId, tipo: 'Reintegro' })
-        .whereNull('prestador_id')   // solo reintegros iniciados por el afiliado
-        .orderBy('fecha_solicitud', 'desc')
-        .orderBy('id', 'desc');
+    return affiliateRequestQuery(affiliateId, 'Reintegro', trx);
 };
 
 const createReintegro = async (affiliateId, data, trx = db) => {
@@ -273,7 +293,63 @@ const responderObservacion = async (id, affiliateId, respuesta, trx = db) => {
         .where({ id, afiliado_id: affiliateId, estado: 'Observada' })
         .update({ estado: 'En análisis', respuesta_afiliado: respuesta, actualizado_en: trx.fn.now() })
         .returning('*');
+    if (!req) return null;
     return getReintegrosByAffiliate(affiliateId, trx).where('prestador_requests.id', req.id).first();
+};
+
+const getTramitesByAffiliate = async (affiliateId, type, trx = db) => {
+    return affiliateRequestQuery(affiliateId, type, trx);
+};
+
+const createReceta = async (affiliateId, data, trx = db) => {
+    const [req] = await trx('prestador_requests')
+        .insert({
+            prestador_id: null,
+            afiliado_id: affiliateId,
+            nro_solicitud: `REC-${Date.now()}`,
+            afiliado_nombre: data.affiliateName,
+            tipo: 'Receta',
+            estado: 'Pendiente',
+            fecha_solicitud: data.fechaEmision,
+            descripcion: data.observaciones || null,
+            medicamento_nombre: data.medicamento,
+            medicamento_presentacion: data.presentacion,
+            medicamento_cantidad: data.cantidad,
+            fecha_emision: data.fechaEmision,
+        })
+        .returning('*');
+    return affiliateRequestQuery(affiliateId, 'Receta', trx).where('prestador_requests.id', req.id).first();
+};
+
+const createAutorizacion = async (affiliateId, data, trx = db) => {
+    const [req] = await trx('prestador_requests')
+        .insert({
+            prestador_id: null,
+            afiliado_id: affiliateId,
+            nro_solicitud: `AUT-${Date.now()}`,
+            afiliado_nombre: data.affiliateName,
+            tipo: 'Autorizacion',
+            estado: 'Pendiente',
+            fecha_solicitud: data.fechaPrevista,
+            descripcion: data.observaciones || null,
+            medico_nombre: data.medico,
+            especialidad: data.especialidad,
+            lugar_atencion: data.lugarPrestacion,
+            fecha_prevista: data.fechaPrevista,
+            dias_internacion: data.diasInternacion,
+        })
+        .returning('*');
+    return affiliateRequestQuery(affiliateId, 'Autorizacion', trx).where('prestador_requests.id', req.id).first();
+};
+
+const responderTramiteObservacion = async (id, affiliateId, type, respuesta, trx = db) => {
+    const [req] = await trx('prestador_requests')
+        .where({ id, afiliado_id: affiliateId, tipo: type, estado: 'Observada' })
+        .whereNull('prestador_id')
+        .update({ estado: 'En análisis', respuesta_afiliado: respuesta, actualizado_en: trx.fn.now() })
+        .returning('*');
+    if (!req) return null;
+    return affiliateRequestQuery(affiliateId, type, trx).where('prestador_requests.id', req.id).first();
 };
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
@@ -355,6 +431,7 @@ module.exports = {
     updateAffiliateById,
     getFamilyByHolderId,
     getScheduledDeletions,
+    activateDueScheduledAffiliates,
     getAffiliateByUserId,
     getLastCredencialNumber,
     getAppointmentsByAffiliate,
@@ -365,6 +442,10 @@ module.exports = {
     getReintegrosByAffiliate,
     createReintegro,
     responderObservacion,
+    getTramitesByAffiliate,
+    createReceta,
+    createAutorizacion,
+    responderTramiteObservacion,
     getAllReintegrosForAdmin,
     updateReintegroStatus,
 }

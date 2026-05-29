@@ -807,6 +807,11 @@ const serializeRequestAdmin = (r) => ({
   } : null,
 });
 
+const normalizeSolicitudStatusPayload = (body = {}) => ({
+  estado: body.estado || body.status,
+  motivo: body.motivo || body.reason,
+});
+
 const adminGetSolicitudes = async (req, res) => {
   try {
     const { estado, status, page = 1, limit = 20 } = req.query;
@@ -829,7 +834,7 @@ const adminGetSolicitudes = async (req, res) => {
 const adminUpdateSolicitudStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { estado, motivo } = req.body;
+    const { estado, motivo } = normalizeSolicitudStatusPayload(req.body);
     if (!estado || !ESTADOS_SOLICITUD.has(estado))
       return res.status(400).json({ message: 'Estado inválido' });
     if (['Aprobada', 'Rechazada', 'Observada'].includes(estado) && !String(motivo || '').trim())
@@ -869,4 +874,7 @@ module.exports = {
   deleteSituation,
   getNotifications,
   markNotificationAsRead,
+  _private: {
+    normalizeSolicitudStatusPayload
+  }
 };

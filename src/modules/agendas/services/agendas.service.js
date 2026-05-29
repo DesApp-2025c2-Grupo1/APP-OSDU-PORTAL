@@ -82,6 +82,24 @@ const sendError = (res, e, context) => {
   return res.status(500).json({ message: 'Error interno del servidor' });
 };
 
+const normalizeAgendaQuery = (query = {}) => ({
+  ...query,
+  cuitCuil: query.cuitCuil || query.cuit || query.prestadorCuit,
+  idEspecialidad: query.idEspecialidad || query.especialidadId || query.specialtyId,
+});
+
+const normalizeAgendaPayload = (body = {}) => ({
+  ...body,
+  cuitCuil: body.cuitCuil || body.cuit || body.prestadorCuit,
+  idEspecialidad: body.idEspecialidad || body.especialidadId || body.specialtyId,
+  idLugar: body.idLugar || body.lugarId || body.placeId,
+  duracionTurno: body.duracionTurno || body.duracion || body.duration,
+  fechaInicio: body.fechaInicio || body.fecha_inicio || body.startDate,
+  fechaFin: body.fechaFin || body.fecha_fin || body.endDate,
+  estaActivo: body.estaActivo ?? body.activo ?? body.active,
+  bloques: body.bloques || body.blocks,
+});
+
 // Devuelve el prestador_id del usuario autenticado, o null si es ADMIN
 const getPrestadorIdFromReq = async (req) => {
   const role = req.user?.role;
@@ -93,7 +111,7 @@ const getPrestadorIdFromReq = async (req) => {
 
 const getAll = async (req, res) => {
   try {
-    const { cuitCuil, idEspecialidad } = req.query;
+    const { cuitCuil, idEspecialidad } = normalizeAgendaQuery(req.query);
     const filters = {};
 
     if (cuitCuil) {
@@ -124,7 +142,7 @@ const getById = async (req, res) => {
 
 const create = async (req, res) => {
   try {
-    const { cuitCuil, idEspecialidad, idLugar, duracionTurno, bloques, fechaInicio, fechaFin } = req.body;
+    const { cuitCuil, idEspecialidad, idLugar, duracionTurno, bloques, fechaInicio, fechaFin } = normalizeAgendaPayload(req.body);
 
     if (!cuitCuil) return res.status(400).json({ message: 'cuitCuil es requerido' });
     if (!idEspecialidad) return res.status(400).json({ message: 'idEspecialidad es requerido' });
@@ -183,7 +201,7 @@ const update = async (req, res) => {
       }
     }
 
-    const { cuitCuil, idEspecialidad, idLugar, duracionTurno, bloques, fechaInicio, fechaFin, estaActivo } = req.body;
+    const { cuitCuil, idEspecialidad, idLugar, duracionTurno, bloques, fechaInicio, fechaFin, estaActivo } = normalizeAgendaPayload(req.body);
     const updateData = {};
 
     if (cuitCuil) {
@@ -237,5 +255,9 @@ const remove = async (req, res) => {
 };
 
 module.exports = {
-  getAll, getById, create, update, remove
+  getAll, getById, create, update, remove,
+  _private: {
+    normalizeAgendaPayload,
+    normalizeAgendaQuery
+  }
 };

@@ -43,6 +43,16 @@ router.get('/reintegros', authorize('AFILIADO'), affiliatesService.getMyReintegr
 router.post('/reintegros', authorize('AFILIADO'), affiliatesService.submitReintegro);
 router.put('/reintegros/:id/respuesta', authorize('AFILIADO'), affiliatesService.responderObservacion);
 
+// Recetas del afiliado autenticado
+router.get('/recetas', authorize('AFILIADO'), affiliatesService.getMyRecetas);
+router.post('/recetas', authorize('AFILIADO'), affiliatesService.submitReceta);
+router.put('/recetas/:id/respuesta', authorize('AFILIADO'), affiliatesService.responderRecetaObservacion);
+
+// Autorizaciones del afiliado autenticado
+router.get('/autorizaciones', authorize('AFILIADO'), affiliatesService.getMyAutorizaciones);
+router.post('/autorizaciones', authorize('AFILIADO'), affiliatesService.submitAutorizacion);
+router.put('/autorizaciones/:id/respuesta', authorize('AFILIADO'), affiliatesService.responderAutorizacionObservacion);
+
 // Admin — gestión de reintegros
 router.get('/reintegros/admin', authorize('ADMIN'), affiliatesService.adminGetReintegros);
 router.put('/reintegros/:id/admin/estado', authorize('ADMIN'), affiliatesService.adminUpdateReintegroStatus);
@@ -53,8 +63,6 @@ router.get('/family/:identifier', authorize('ADMIN'), affiliatesService.getFamil
 router.post('/family/:identifier', authorize('ADMIN'), affiliatesService.createFamilyMember);
 router.delete('/family/member/:identifier', authorize('ADMIN'), affiliatesService.deleteFamilyMember);
 router.post('/:id/schedule-delete', authorize('ADMIN'), affiliatesService.scheduleDeleteAffiliate);
-
-router.get('/', authorize('ADMIN'), affiliatesService.getAffiliatesByStatus);
 
 /**
  * @swagger
@@ -166,9 +174,12 @@ router.put('/:id/deactivate', authorize('ADMIN'), affiliatesService.deactivateAf
  *       200:
  *         description: Afiliado creado correctamente
  */
-router.post('/', authorize('ADMIN'), upload.fields([
+const affiliateDocumentUpload = upload.fields([
   { name: 'dni_document', maxCount: 1 },
   { name: 'payslip_document', maxCount: 1 }
-]), affiliatesService.createAffiliate);
+]);
+
+router.post('/register', affiliateDocumentUpload, affiliatesService.createAffiliate);
+router.post('/', authorize('ADMIN'), affiliateDocumentUpload, affiliatesService.createAffiliate);
 
 module.exports = router;
