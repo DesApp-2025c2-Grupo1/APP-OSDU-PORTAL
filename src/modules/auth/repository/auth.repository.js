@@ -12,7 +12,7 @@ const getUserByUsername = async (email, trx = db) => {
         )
         .join('usuarios_roles', 'usuarios.id', 'usuarios_roles.usuario_id')
         .join('roles', 'usuarios_roles.rol_id', 'roles.id')
-        .where('usuarios.email', email)
+        .whereRaw('LOWER(usuarios.email) = ?', [email.toLowerCase().trim()])
         .first();
 }
 

@@ -75,8 +75,8 @@ const changePassword = async (req, res) => {
         const newPassword = req.body.newPassword || req.body.nuevaPassword;
         const userId = req.user.id;
 
-        if (!currentPassword || !newPassword) {
-            return res.status(400).json({ message: 'La contraseña actual y la nueva contraseña son requeridas' });
+        if (!newPassword) {
+            return res.status(400).json({ message: 'La nueva contraseña es requerida' });
         }
         if (newPassword.length < PASSWORD_MIN_LENGTH) {
             return res.status(400).json({ message: `La nueva contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres` });
@@ -94,9 +94,14 @@ const changePassword = async (req, res) => {
             return res.status(404).json({ message: 'Usuario no encontrado' });
         }
 
-        const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ message: 'La contraseña actual es incorrecta' });
+        if (!user.must_change_password) {
+            if (!currentPassword) {
+                return res.status(400).json({ message: 'La contraseña actual es requerida' });
+            }
+            const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+            if (!isPasswordValid) {
+                return res.status(401).json({ message: 'La contraseña actual es incorrecta' });
+            }
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 12);
@@ -150,7 +155,8 @@ const logout = async (req, res) => {
  * por lo tanto la llamada a notify() debe hacerse en el caller, no aquí.
  */
 const registerInternal = async (email, trx) => {
-    const existing = await authRepository.getUserByUsername(email, trx);
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await authRepository.getUserByUsername(normalizedEmail, trx);
     if (existing) {
         throw new Error('El usuario ya existe');
     }
@@ -161,7 +167,7 @@ const registerInternal = async (email, trx) => {
     }
 
     const hashedPassword = await bcrypt.hash(defaultPassword, 10);
-    const newUser = await authRepository.createUser(email, hashedPassword, trx);
+    const newUser = await authRepository.createUser(normalizedEmail, hashedPassword, trx);
 
     const role = await authRepository.getRoleByRoleName('AFILIADO', trx);
     if (!role) throw new Error('Rol AFILIADO no encontrado en la base de datos');
