@@ -113,6 +113,36 @@ describe('Affiliates Endpoints', () => {
     });
   });
 
+  describe('POST /affiliates autorización y registro público', () => {
+    it('retorna 401 al crear afiliado desde endpoint admin sin token', async () => {
+      const res = await request(app)
+        .post('/affiliates')
+        .send({});
+
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('retorna 403 cuando un AFILIADO intenta crear desde endpoint admin', async () => {
+      jwt.verify.mockReturnValue({ id: 2, email: 'afiliado@example.com', role: 'AFILIADO' });
+
+      const res = await request(app)
+        .post('/affiliates')
+        .set('Authorization', 'Bearer faketoken')
+        .send({});
+
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('permite llegar a validación en el endpoint público de registro', async () => {
+      const res = await request(app)
+        .post('/affiliates/register')
+        .send({});
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toBe('Datos inválidos');
+    });
+  });
+
   describe('PUT /affiliates/:id/activate', () => {
     it('activa afiliado y envía notificación de email', async () => {
       affiliateRepository.getAffiliateById.mockResolvedValue(mockAffiliate);

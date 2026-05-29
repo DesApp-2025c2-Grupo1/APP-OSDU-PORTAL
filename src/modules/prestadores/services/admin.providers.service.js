@@ -39,6 +39,23 @@ const splitName = (nombreCompleto) => {
   };
 };
 
+const normalizeProviderPayload = (body = {}) => {
+  const nameParts = [body.nombre || body.firstName, body.apellido || body.lastName].filter(Boolean).join(' ');
+  const nombreCompleto = body.nombreCompleto || body.fullName || nameParts || undefined;
+
+  return {
+    ...body,
+    cuitCuil: body.cuitCuil || body.cuit || body.cuit_cuil,
+    nombreCompleto,
+    tipoPrestador: body.tipoPrestador || body.tipo_prestador || body.providerType,
+    centroMedicoId: body.centroMedicoId || body.centro_medico_id || body.medicalCenterId,
+    mails: body.mails || body.emails || (body.email ? [body.email] : undefined),
+    telefonos: body.telefonos || body.phones || (body.telefono || body.phone ? [body.telefono || body.phone] : undefined),
+    especialidades: body.especialidades || body.specialties || body.specialtyIds,
+    lugaresAtencion: body.lugaresAtencion || body.lugares_atencion || body.places,
+  };
+};
+
 const sendError = (res, error, fallbackMessage) => {
   if (error instanceof HttpError) {
     return res.status(error.status).json({
@@ -507,12 +524,13 @@ const getOwnProfile = async (req, res) => {
 
 const create = async (req, res) => {
   try {
-    const validated = validateProviderPayload(req.body);
+    const payload = normalizeProviderPayload(req.body);
+    const validated = validateProviderPayload(payload);
     const result = await db.transaction(async (trx) => {
       await validateDuplicatesForCreate(trx, validated);
 
       const centroMedicoDbId = validated.tipoPrestador === 'profesional'
-        ? await resolveCentroMedicoId(trx, req.body.centroMedicoId)
+        ? await resolveCentroMedicoId(trx, payload.centroMedicoId)
         : null;
       const { nombre, apellido } = splitName(validated.nombreCompleto);
       const hash = await bcrypt.hash(validated.cleanCuit, 10);
@@ -591,34 +609,35 @@ const create = async (req, res) => {
 const update = async (req, res) => {
   try {
     const { cuit } = req.params;
+    const payload = normalizeProviderPayload(req.body);
     const result = await db.transaction(async (trx) => {
       const p = await trx('prestadores').where('cuit', normalizeCuit(cuit)).first();
       if (!p) throw new HttpError(404, 'Prestador no encontrado');
 
-      const validated = validateProviderPayload(req.body, { partial: true });
+      const validated = validateProviderPayload(payload, { partial: true });
       const updateData = { actualizado_en: trx.fn.now() };
 
-      if (req.body.cuitCuil !== undefined && validated.cleanCuit !== p.cuit) {
+      if (payload.cuitCuil !== undefined && validated.cleanCuit !== p.cuit) {
         const duplicate = await trx('prestadores').where({ cuit: validated.cleanCuit }).whereNot('id', p.id).first();
         if (duplicate) throw new HttpError(409, 'Ya existe un prestador con ese CUIT/CUIL');
         updateData.cuit = validated.cleanCuit;
         updateData.nro_documento = validated.cleanCuit.slice(2, -1);
       }
 
-      if (req.body.nombreCompleto !== undefined) {
+      if (payload.nombreCompleto !== undefined) {
         Object.assign(updateData, splitName(validated.nombreCompleto));
       }
 
-      if (req.body.tipoPrestador !== undefined) updateData.tipo_prestador = validated.tipoPrestador;
-      if (req.body.estado !== undefined) {
-        assertValidState(req.body.estado);
-        updateData.estado = req.body.estado;
-        updateData.activo = req.body.estado === 'activo';
+      if (payload.tipoPrestador !== undefined) updateData.tipo_prestador = validated.tipoPrestador;
+      if (payload.estado !== undefined) {
+        assertValidState(payload.estado);
+        updateData.estado = payload.estado;
+        updateData.activo = payload.estado === 'activo';
       }
-      if (req.body.centroMedicoId !== undefined) updateData.centro_medico_id = await resolveCentroMedicoId(trx, req.body.centroMedicoId);
+      if (payload.centroMedicoId !== undefined) updateData.centro_medico_id = await resolveCentroMedicoId(trx, payload.centroMedicoId);
       if (validated.tipoPrestador === 'centro_medico') updateData.centro_medico_id = null;
 
-      if (req.body.mails !== undefined) {
+      if (payload.mails !== undefined) {
         const existingUser = await trx('usuarios').whereIn('email', validated.mails).whereNot('id', p.usuario_id).first();
         if (existingUser) throw new HttpError(409, 'Ya existe un usuario con ese email');
         updateData.mails = JSON.stringify(validated.mails);
@@ -626,20 +645,20 @@ const update = async (req, res) => {
         await trx('usuarios').where({ id: p.usuario_id }).update({ email: validated.mails[0], actualizado_en: trx.fn.now() });
       }
 
-      if (req.body.telefonos !== undefined) {
+      if (payload.telefonos !== undefined) {
         updateData.telefonos = JSON.stringify(validated.telefonos);
         updateData.telefono = validated.telefonos[0];
       }
 
       await trx('prestadores').where('id', p.id).update(updateData);
 
-      if (req.body.especialidades !== undefined) {
+      if (payload.especialidades !== undefined) {
         const specialtyIds = [...new Set(validated.especialidades.map((e) => Number(typeof e === 'object' ? e.id : e)).filter(Boolean))];
         const currentSpecialties = await trx('prestador_especialidades')
           .where('prestador_id', p.id)
           .pluck('especialidad_id');
         const removedSpecialties = currentSpecialties.filter((id) => !specialtyIds.includes(Number(id)));
-        if (removedSpecialties.length > 0 && !req.body.confirmAgendaImpact) {
+        if (removedSpecialties.length > 0 && !payload.confirmAgendaImpact) {
           const agenda = await trx('agendas')
             .where('prestador_id', p.id)
             .whereIn('especialidad_id', removedSpecialties)
@@ -662,8 +681,8 @@ const update = async (req, res) => {
         }
       }
 
-      if (req.body.lugaresAtencion !== undefined) {
-        if (!req.body.confirmAgendaImpact) {
+      if (payload.lugaresAtencion !== undefined) {
+        if (!payload.confirmAgendaImpact) {
           const agenda = await trx('agendas').where('prestador_id', p.id).first();
           if (agenda) {
             throw new HttpError(409, 'El cambio afecta agendas existentes', [{
@@ -683,15 +702,15 @@ const update = async (req, res) => {
         })));
       }
 
-      const changedFields = Object.keys(req.body).filter((field) => field !== 'confirmAgendaImpact');
+      const changedFields = Object.keys(payload).filter((field) => field !== 'confirmAgendaImpact');
       await createAuditLog(trx, {
         prestadorId: p.id,
         adminUserId: getAdminUserId(req),
-        action: req.body.confirmAgendaImpact ? 'update_with_agenda_impact' : 'update',
-        reason: normalizeReason(req.body.motivo) || null,
+        action: payload.confirmAgendaImpact ? 'update_with_agenda_impact' : 'update',
+        reason: normalizeReason(payload.motivo) || null,
         metadata: {
           changedFields,
-          confirmAgendaImpact: !!req.body.confirmAgendaImpact
+          confirmAgendaImpact: !!payload.confirmAgendaImpact
         }
       });
 
@@ -965,5 +984,8 @@ module.exports = {
   resendCredentials,
   getAuditLogs,
   getAgendasBySpecialty,
-  getAgendasByPlaces
+  getAgendasByPlaces,
+  _private: {
+    normalizeProviderPayload
+  }
 };
