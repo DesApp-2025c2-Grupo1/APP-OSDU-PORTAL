@@ -86,6 +86,8 @@ const createAffiliate = async (req, res) => {
     }
     affiliate.alta_programada_en = activationDate;
     affiliate.activo = false;
+  } else if (req.user && req.user.role_name === 'ADMIN') {
+    affiliate.activo = true;
   }
 
   if (req.files) {
