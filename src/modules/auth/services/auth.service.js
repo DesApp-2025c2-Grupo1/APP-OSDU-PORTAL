@@ -75,8 +75,8 @@ const changePassword = async (req, res) => {
         const newPassword = req.body.newPassword || req.body.nuevaPassword;
         const userId = req.user.id;
 
-        if (!currentPassword || !newPassword) {
-            return res.status(400).json({ message: 'La contraseña actual y la nueva contraseña son requeridas' });
+        if (!newPassword) {
+            return res.status(400).json({ message: 'La nueva contraseña es requerida' });
         }
         if (newPassword.length < PASSWORD_MIN_LENGTH) {
             return res.status(400).json({ message: `La nueva contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres` });
