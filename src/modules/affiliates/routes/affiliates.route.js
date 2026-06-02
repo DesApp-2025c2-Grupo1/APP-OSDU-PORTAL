@@ -50,7 +50,7 @@ router.put('/recetas/:id/respuesta', authorize('AFILIADO'), affiliatesService.re
 
 // Autorizaciones del afiliado autenticado
 router.get('/autorizaciones', authorize('AFILIADO'), affiliatesService.getMyAutorizaciones);
-router.post('/autorizaciones', authorize('AFILIADO'), affiliatesService.submitAutorizacion);
+router.post('/autorizaciones', authorize('AFILIADO'), upload.single('orden'), affiliatesService.submitAutorizacion);
 router.put('/autorizaciones/:id/respuesta', authorize('AFILIADO'), affiliatesService.responderAutorizacionObservacion);
 
 // Admin — gestión de reintegros

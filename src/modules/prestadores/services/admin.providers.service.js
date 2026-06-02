@@ -417,11 +417,16 @@ const serializeCartillaItem = async (p, trx = db) => {
       .orderBy('especialidades.nombre'),
   ]);
 
+  const cuitRaw = String(p.cuit || '').replace(/\D/g, '');
+  const cuitFormateado = cuitRaw.length === 11
+    ? `${cuitRaw.slice(0, 2)}-${cuitRaw.slice(2, 10)}-${cuitRaw.slice(10)}`
+    : (p.cuit || '');
   return {
     id: p.id,
     nombreCompleto: `${p.nombre} ${p.apellido}`.trim(),
     tipoPrestador: p.tipo_prestador || 'profesional',
     telefono: p.telefono || parseJsonArray(p.telefonos)[0] || '',
+    cuit: cuitFormateado,
     especialidades: specialties.map((e) => e.nombre),
     lugaresAtencion: places.map((lugar) => ({
       calle: lugar.calle,

@@ -137,6 +137,20 @@ const getFamilyByHolderId = async (holderId, trx = db) => {
         .orderBy('afiliados.id', 'asc');
 }
 
+/**
+ * Devuelve el afiliado con `memberId` sólo si pertenece al grupo familiar del titular `holderId`.
+ * Cubre: el propio titular (id = holderId) y sus beneficiarios (afiliado_titular_id = holderId).
+ */
+const getFamilyMemberForHolder = async (memberId, holderId, trx = db) => {
+    return affiliateWithPlanQuery(trx)
+        .where('afiliados.id', memberId)
+        .where(function () {
+            this.where('afiliados.id', holderId)
+                .orWhere('afiliados.afiliado_titular_id', holderId);
+        })
+        .first();
+}
+
 const getScheduledDeletions = async (trx = db) => {
     return affiliateWithPlanQuery(trx)
         .where(function () {
@@ -257,9 +271,27 @@ const requestSelectColumns = [
 const affiliateRequestQuery = (affiliateId, type, trx = db) => trx('prestador_requests')
     .select(requestSelectColumns)
     .where({ afiliado_id: affiliateId, tipo: type })
-    .whereNull('prestador_id')
     .orderBy('fecha_solicitud', 'desc')
     .orderBy('id', 'desc');
+
+/**
+ * Trae todos los trámites de un tipo para el titular Y sus beneficiarios.
+ * Retorna todos juntos para que el frontend pueda filtrar por perfil activo.
+ */
+const getFamilyTramitesByTipo = async (holderAffiliateId, tipo, trx = db) => {
+    // IDs del titular + todos sus beneficiarios
+    const familyIds = await trx('afiliados')
+        .where('id', holderAffiliateId)
+        .orWhere('afiliado_titular_id', holderAffiliateId)
+        .pluck('id');
+
+    return trx('prestador_requests')
+        .select(requestSelectColumns)
+        .where({ tipo })
+        .whereIn('afiliado_id', familyIds)
+        .orderBy('fecha_solicitud', 'desc')
+        .orderBy('id', 'desc');
+};
 
 const getReintegrosByAffiliate = async (affiliateId, trx = db) => {
     return affiliateRequestQuery(affiliateId, 'Reintegro', trx);
@@ -285,7 +317,7 @@ const createReintegro = async (affiliateId, data, trx = db) => {
             cbu: data.cbu || null,
         })
         .returning('*');
-    return getReintegrosByAffiliate(affiliateId, trx).where('prestador_requests.id', req.id).first();
+    return affiliateRequestQuery(affiliateId, 'Reintegro', trx).where('prestador_requests.id', req.id).first();
 };
 
 const responderObservacion = async (id, affiliateId, respuesta, trx = db) => {
@@ -294,7 +326,7 @@ const responderObservacion = async (id, affiliateId, respuesta, trx = db) => {
         .update({ estado: 'En análisis', respuesta_afiliado: respuesta, actualizado_en: trx.fn.now() })
         .returning('*');
     if (!req) return null;
-    return getReintegrosByAffiliate(affiliateId, trx).where('prestador_requests.id', req.id).first();
+    return affiliateRequestQuery(affiliateId, 'Reintegro', trx).where('prestador_requests.id', req.id).first();
 };
 
 const getTramitesByAffiliate = async (affiliateId, type, trx = db) => {
@@ -332,11 +364,16 @@ const createAutorizacion = async (affiliateId, data, trx = db) => {
             estado: 'Pendiente',
             fecha_solicitud: data.fechaPrevista,
             descripcion: data.observaciones || null,
+            subtipo_autorizacion: data.subtipo || null,
             medico_nombre: data.medico,
             especialidad: data.especialidad,
             lugar_atencion: data.lugarPrestacion,
             fecha_prevista: data.fechaPrevista,
             dias_internacion: data.diasInternacion,
+            adjunto_nombre: data.adjunto?.nombre || null,
+            adjunto_tipo: data.adjunto?.tipo || null,
+            adjunto_tamanio: data.adjunto?.tamanio || null,
+            adjunto_ruta: data.adjunto?.ruta || null,
         })
         .returning('*');
     return affiliateRequestQuery(affiliateId, 'Autorizacion', trx).where('prestador_requests.id', req.id).first();
@@ -448,4 +485,6 @@ module.exports = {
     responderTramiteObservacion,
     getAllReintegrosForAdmin,
     updateReintegroStatus,
+    getFamilyMemberForHolder,
+    getFamilyTramitesByTipo,
 }

@@ -789,6 +789,7 @@ const STATUS_REINTEGRO_MAP = {
 const serializeReintegro = (r) => ({
   id: r.id,
   nro: r.request_number,
+  idIntegrante: String(r.affiliate_id),
   fechaPrestacion: toDateStr(r.request_date),
   medico: r.medico_nombre,
   especialidad: r.especialidad,
@@ -834,6 +835,7 @@ const serializeAutorizacion = (r) => ({
   nro: r.request_number,
   idIntegrante: String(r.affiliate_id),
   fechaPrevista: toDateStr(r.fecha_prevista || r.request_date),
+  subtipo: r.subtipo_autorizacion || null,
   especialidad: r.especialidad,
   medico: r.medico_nombre,
   lugarPrestacion: r.lugar_atencion,
@@ -845,7 +847,25 @@ const serializeAutorizacion = (r) => ({
   mensajeObservacion: r.status === 'Observada' ? (r.status_reason || null) : null,
   motivoEstado: r.status_reason || null,
   respuestaAfiliado: r.affiliate_response || null,
+  adjuntoNombre: r.adjunto_nombre || null,
+  adjuntoRuta: r.adjunto_ruta ? `/uploads/${r.adjunto_ruta}` : null,
 });
+
+/**
+ * Resuelve el afiliado sobre el que se opera:
+ *  - Si el body incluye `affiliateId` se valida que ese ID pertenezca al grupo familiar del titular.
+ *  - Si no, se usa el propio titular.
+ */
+const resolveAffiliate = async (req) => {
+  const holder = await affiliateRepository.getAffiliateByUserId(req.user.id);
+  if (!holder) return null;
+
+  const requestedId = req.body.affiliateId ? Number(req.body.affiliateId) : null;
+  if (!requestedId || requestedId === holder.id) return holder;
+
+  const member = await affiliateRepository.getFamilyMemberForHolder(requestedId, holder.id);
+  return member || null; // null = no pertenece al grupo familiar
+};
 
 const normalizeReintegroPayload = (body = {}) => ({
   ...body,
@@ -864,7 +884,7 @@ const getMyReintegros = async (req, res) => {
     const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
     if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
 
-    const rows = await affiliateRepository.getReintegrosByAffiliate(affiliate.id);
+    const rows = await affiliateRepository.getFamilyTramitesByTipo(affiliate.id, 'Reintegro');
     return res.status(200).json(rows.map(serializeReintegro));
   } catch (error) {
     console.error('Error getMyReintegros:', error);
@@ -874,8 +894,8 @@ const getMyReintegros = async (req, res) => {
 
 const submitReintegro = async (req, res) => {
   try {
-    const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
-    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
+    const affiliate = await resolveAffiliate(req);
+    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado o no pertenece al grupo familiar' });
 
     const { fechaPrestacion, medico, especialidad, lugarAtencion, facturaCuit, facturaValor, formaPago, cbu, observaciones } = normalizeReintegroPayload(req.body);
 
@@ -938,7 +958,7 @@ const getMyRecetas = async (req, res) => {
     const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
     if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
 
-    const rows = await affiliateRepository.getTramitesByAffiliate(affiliate.id, 'Receta');
+    const rows = await affiliateRepository.getFamilyTramitesByTipo(affiliate.id, 'Receta');
     return res.status(200).json(rows.map(serializeReceta));
   } catch (error) {
     console.error('Error getMyRecetas:', error);
@@ -948,8 +968,8 @@ const getMyRecetas = async (req, res) => {
 
 const submitReceta = async (req, res) => {
   try {
-    const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
-    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
+    const affiliate = await resolveAffiliate(req);
+    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado o no pertenece al grupo familiar' });
 
     const medicamento = String(req.body.medicamento || req.body.medicamentoNombre || '').trim();
     const presentacion = String(req.body.presentacion || '').trim();
@@ -998,7 +1018,7 @@ const getMyAutorizaciones = async (req, res) => {
     const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
     if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
 
-    const rows = await affiliateRepository.getTramitesByAffiliate(affiliate.id, 'Autorizacion');
+    const rows = await affiliateRepository.getFamilyTramitesByTipo(affiliate.id, 'Autorizacion');
     return res.status(200).json(rows.map(serializeAutorizacion));
   } catch (error) {
     console.error('Error getMyAutorizaciones:', error);
@@ -1008,10 +1028,11 @@ const getMyAutorizaciones = async (req, res) => {
 
 const submitAutorizacion = async (req, res) => {
   try {
-    const affiliate = await affiliateRepository.getAffiliateByUserId(req.user.id);
-    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
+    const affiliate = await resolveAffiliate(req);
+    if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado o no pertenece al grupo familiar' });
 
     const fechaPrevista = req.body.fechaPrevista || req.body.fecha;
+    const subtipo = String(req.body.subtipo || '').trim();
     const especialidad = String(req.body.especialidad || '').trim();
     const medico = String(req.body.medico || '').trim();
     const lugarPrestacion = String(req.body.lugarPrestacion || req.body.lugarAtencion || '').trim();
@@ -1019,19 +1040,30 @@ const submitAutorizacion = async (req, res) => {
 
     if (!fechaPrevista) return res.status(400).json({ message: 'La fecha prevista es requerida' });
     assertISODate(fechaPrevista);
+    if (!subtipo) return res.status(400).json({ message: 'El tipo de autorización es requerido' });
     if (!especialidad) return res.status(400).json({ message: 'La especialidad es requerida' });
     if (!medico) return res.status(400).json({ message: 'El médico solicitante es requerido' });
     if (!lugarPrestacion) return res.status(400).json({ message: 'El lugar de realización es requerido' });
     if (!Number.isInteger(diasInternacion) || diasInternacion < 0) return res.status(400).json({ message: 'Los días de internación no son válidos' });
 
+    // Adjunto (orden médica) — opcional
+    const adjunto = req.file ? {
+      nombre: req.file.originalname,
+      tipo: req.file.mimetype,
+      tamanio: req.file.size,
+      ruta: req.file.filename,
+    } : null;
+
     const autorizacion = await affiliateRepository.createAutorizacion(affiliate.id, {
       affiliateName: `${affiliate.first_name} ${affiliate.last_name}`.trim(),
       fechaPrevista,
+      subtipo,
       especialidad,
       medico,
       lugarPrestacion,
       diasInternacion,
       observaciones: req.body.observaciones || null,
+      adjunto,
     });
 
     return res.status(201).json(serializeAutorizacion(autorizacion));

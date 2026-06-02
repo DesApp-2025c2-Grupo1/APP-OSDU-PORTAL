@@ -16,6 +16,12 @@ router.get('/solicitudes', authorize('PRESTADOR'), prestadoresService.getRequest
 router.post('/solicitudes', authorize('PRESTADOR'), prestadoresService.createRequest);
 router.put('/solicitudes/:id/estado', authorize('PRESTADOR'), prestadoresService.updateRequestStatus);
 
+router.get('/autorizaciones/afiliados', authorize('PRESTADOR'), prestadoresService.getAfiliateAutorizaciones);
+router.put('/autorizaciones/:id/estado', authorize('PRESTADOR'), prestadoresService.updateAfiliateAutorizacionStatus);
+
+router.get('/recetas/afiliados', authorize('PRESTADOR'), prestadoresService.getAfiliateRecetas);
+router.put('/recetas/:id/estado', authorize('PRESTADOR'), prestadoresService.updateAfiliateRecetaStatus);
+
 router.get('/turnos', authorize('PRESTADOR'), prestadoresService.getAppointments);
 router.get('/turnos/mes', authorize('PRESTADOR'), prestadoresService.getAppointmentsByMonth);
 router.post('/turnos', authorize('PRESTADOR'), prestadoresService.createAppointment);
