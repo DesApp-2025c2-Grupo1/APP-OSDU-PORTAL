@@ -7,14 +7,14 @@ const createPrestadorAuditLog = async (trx, req, { prestadorId, action, reason =
 
   await trx('prestador_audit_logs').insert({
     prestador_id: prestadorId,
-    admin_user_id: getActorUserId(req),
-    action,
-    reason: reason || null,
+    admin_usuario_id: getActorUserId(req),
+    accion: action,
+    motivo: reason || null,
     metadata: JSON.stringify({
       actorRole: req.user?.role || null,
       ...metadata
     }),
-    created_at: trx.fn.now()
+    creado_en: trx.fn.now()
   });
 };
 
@@ -105,7 +105,7 @@ const getPrestadorIdFromReq = async (req) => {
   const role = req.user?.role;
   if (role !== 'PRESTADOR') return null;
   const userId = req.user?.id || req.user?.id_usuario;
-  const p = await db('prestadores').where('user_id', userId).first();
+  const p = await db('prestadores').where('usuario_id', userId).first();
   return p ? p.id : null;
 };
 
@@ -154,7 +154,7 @@ const create = async (req, res) => {
     // Un PRESTADOR solo puede crear agendas para sí mismo
     if (req.user?.role === 'PRESTADOR') {
       const userId = req.user?.id || req.user?.id_usuario;
-      const own = await db('prestadores').where('user_id', userId).first();
+      const own = await db('prestadores').where('usuario_id', userId).first();
       if (!own || own.id !== p.id) {
         return res.status(403).json({ message: 'No tienes permiso para crear agendas de otro prestador' });
       }
@@ -195,7 +195,7 @@ const update = async (req, res) => {
     // Un PRESTADOR solo puede modificar sus propias agendas
     if (req.user?.role === 'PRESTADOR') {
       const userId = req.user?.id || req.user?.id_usuario;
-      const own = await db('prestadores').where('user_id', userId).first();
+      const own = await db('prestadores').where('usuario_id', userId).first();
       if (!own || own.id !== existing.prestador_id) {
         return res.status(403).json({ message: 'No tienes permiso para modificar agendas de otro prestador' });
       }
