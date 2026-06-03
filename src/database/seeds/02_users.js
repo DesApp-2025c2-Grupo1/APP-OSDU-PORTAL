@@ -1,8 +1,13 @@
+const bcrypt = require('bcryptjs');
+
 /**
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> } 
  */
 exports.seed = async function (knex) {
+  const defaultPassword = process.env.DEFAULT_USER_PASSWORD || 'ClaveTemporal123';
+  const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+
   // Deletes ALL existing entries in dependent tables first
   await knex('usuarios_roles').del()
   await knex('usuarios').del()
@@ -11,17 +16,17 @@ exports.seed = async function (knex) {
     {
       id: 1,
       email: 'admin@mediunahur.com',
-      contrasenia: '$2a$12$TCWUqRe9RYYBiAiO5kk8.uryyCnIFVKymY7Jm41Lu8RC2tpWB0ij.'
+      contrasenia: hashedPassword
     },
     {
       id: 2,
       email: 'afiliado@test.com',
-      contrasenia: '$2a$12$TCWUqRe9RYYBiAiO5kk8.uryyCnIFVKymY7Jm41Lu8RC2tpWB0ij.'
+      contrasenia: hashedPassword
     },
     {
       id: 3,
       email: 'prestador@test.com',
-      contrasenia: '$2a$12$TCWUqRe9RYYBiAiO5kk8.uryyCnIFVKymY7Jm41Lu8RC2tpWB0ij.'
+      contrasenia: hashedPassword
     }
   ]);
 
