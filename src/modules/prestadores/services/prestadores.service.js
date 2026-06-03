@@ -345,6 +345,57 @@ const updateRequestStatus = async (req, res) => {
   }
 };
 
+const makeGetAfiliateTramites = (tipo) => async (req, res) => {
+  try {
+    const rows = await prestadoresRepository.getAfiliateTramitesByTipo(tipo);
+    return res.status(200).json(rows.map(r => ({ ...serializeRequest(r), origen: 'afiliado' })));
+  } catch (error) {
+    return sendError(res, error, `Error getAfiliate${tipo}s:`);
+  }
+};
+
+const makeUpdateAfiliateTramiteStatus = (tipo) => async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body;
+    const motivo = String(req.body.motivo || '').trim();
+
+    if (!estado) throw new HttpError(400, 'El estado es requerido');
+    if (!ESTADOS_SOLICITUD.has(estado)) throw new HttpError(422, 'Estado de solicitud inválido');
+    if (['Aprobada', 'Rechazada', 'Observada'].includes(estado) && !motivo) {
+      throw new HttpError(400, 'El motivo es requerido para cambiar a ese estado');
+    }
+
+    const request = await db.transaction(async (trx) => {
+      const updated = await prestadoresRepository.updateAfiliateTramiteStatus(id, tipo, estado, motivo, getUserId(req), trx);
+      if (!updated) throw new HttpError(404, `${tipo} no encontrada`);
+      if (updated.affiliate_id) {
+        const affiliate = await prestadoresRepository.getAffiliateById(updated.affiliate_id);
+        if (affiliate?.email) {
+          await notify('REQ_STATUS', affiliate.email, {
+            name: `${affiliate.first_name} ${affiliate.last_name}`.trim(),
+            requestNumber: updated.request_number || '',
+            type: updated.type,
+            status: estado,
+            date: updated.request_date ? formatDate(updated.request_date) : '',
+            motivo: motivo || '',
+          });
+        }
+      }
+      return updated;
+    });
+
+    return res.status(200).json({ ...serializeRequest(request), origen: 'afiliado' });
+  } catch (error) {
+    return sendError(res, error, `Error updateAfiliate${tipo}Status:`);
+  }
+};
+
+const getAfiliateAutorizaciones = makeGetAfiliateTramites('Autorizacion');
+const updateAfiliateAutorizacionStatus = makeUpdateAfiliateTramiteStatus('Autorizacion');
+const getAfiliateRecetas = makeGetAfiliateTramites('Receta');
+const updateAfiliateRecetaStatus = makeUpdateAfiliateTramiteStatus('Receta');
+
 const createRequest = async (req, res) => {
   try {
     const prestadorId = await getCurrentPrestadorId(req);
@@ -353,10 +404,39 @@ const createRequest = async (req, res) => {
     if (!affiliateId) throw new HttpError(400, 'El afiliado es requerido');
     const affiliate = await ensureAffiliate(affiliateId);
     const tipo = requireText(req.body.tipo, 'tipo', 'El tipo de solicitud es requerido');
-    const descripcion = requireText(req.body.descripcion, 'descripcion', 'La descripción es requerida');
     const fecha = assertISODate(toISODate(req.body.fecha) || new Date().toISOString().slice(0, 10));
     const adjunto = req.body.adjunto || null;
     if (adjunto && !adjunto.nombre) throw new HttpError(422, 'El adjunto informado no es válido');
+
+    // Campos comunes opcionales
+    const descripcion = String(req.body.descripcion || '').trim() || null;
+
+    // Campos por tipo
+    const extraFields = {};
+    if (tipo === 'Receta') {
+      if (!req.body.medicamento) throw new HttpError(400, 'El medicamento es requerido para una receta');
+      if (!req.body.cantidad || Number(req.body.cantidad) <= 0) throw new HttpError(400, 'La cantidad debe ser mayor a 0');
+      extraFields.medicamento = String(req.body.medicamento).trim();
+      extraFields.presentacion = String(req.body.presentacion || '').trim() || null;
+      extraFields.cantidad = Number(req.body.cantidad);
+      extraFields.fechaEmision = req.body.fechaEmision ? assertISODate(req.body.fechaEmision) : fecha;
+    } else if (tipo === 'Autorizacion') {
+      if (!req.body.especialidad) throw new HttpError(400, 'La especialidad es requerida para una autorización');
+      if (!req.body.medico) throw new HttpError(400, 'El médico es requerido para una autorización');
+      extraFields.especialidad = String(req.body.especialidad).trim();
+      extraFields.medico = String(req.body.medico).trim();
+      extraFields.lugarAtencion = String(req.body.lugarAtencion || '').trim() || null;
+      extraFields.fechaPrevista = req.body.fechaPrevista ? assertISODate(req.body.fechaPrevista) : null;
+      extraFields.diasInternacion = req.body.diasInternacion ? Number(req.body.diasInternacion) : null;
+    } else if (tipo === 'Reintegro') {
+      extraFields.medico = String(req.body.medico || '').trim() || null;
+      extraFields.especialidad = String(req.body.especialidad || '').trim() || null;
+      extraFields.lugarAtencion = String(req.body.lugarAtencion || '').trim() || null;
+      extraFields.facturaCuit = String(req.body.facturaCuit || '').trim() || null;
+      extraFields.facturaValor = req.body.facturaValor ? Number(req.body.facturaValor) : null;
+      extraFields.formaPago = String(req.body.formaPago || '').trim() || null;
+      extraFields.cbu = String(req.body.cbu || '').trim() || null;
+    }
 
     const request = await db.transaction(async (trx) => {
       const created = await prestadoresRepository.createRequest(prestadorId, {
@@ -367,6 +447,7 @@ const createRequest = async (req, res) => {
         fecha,
         descripcion,
         adjunto,
+        ...extraFields,
       }, trx);
       await prestadoresRepository.createWorkflowAuditLog(trx, {
         prestadorId,
@@ -857,6 +938,10 @@ module.exports = {
   getRequests,
   createRequest,
   updateRequestStatus,
+  getAfiliateAutorizaciones,
+  updateAfiliateAutorizacionStatus,
+  getAfiliateRecetas,
+  updateAfiliateRecetaStatus,
   adminGetSolicitudes,
   adminUpdateSolicitudStatus,
   getAppointments,

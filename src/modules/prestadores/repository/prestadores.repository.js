@@ -161,6 +161,39 @@ const getRequestByIdForPrestador = async (id, prestadorId, trx = db) => {
   return trx('prestador_requests').select(requestColumns).where({ id, prestador_id: prestadorId }).first();
 };
 
+const getAfiliateTramitesByTipo = async (tipo, trx = db) => {
+  return trx('prestador_requests')
+    .select(requestColumns)
+    .whereNull('prestador_id')
+    .where({ tipo })
+    .orderBy('fecha_solicitud', 'desc')
+    .orderBy('id', 'desc');
+};
+
+const getAfiliateTramiteById = async (id, tipo, trx = db) => {
+  return trx('prestador_requests')
+    .select(requestColumns)
+    .where({ id })
+    .whereNull('prestador_id')
+    .where({ tipo })
+    .first();
+};
+
+const updateAfiliateTramiteStatus = async (id, tipo, status, reason, userId, trx = db) => {
+  await trx('prestador_requests')
+    .where({ id })
+    .whereNull('prestador_id')
+    .where({ tipo })
+    .update({
+      estado: status,
+      motivo_estado: reason || null,
+      resuelto_por_usuario_id: ['Aprobada', 'Rechazada'].includes(status) ? userId : null,
+      resuelto_en: ['Aprobada', 'Rechazada'].includes(status) ? trx.fn.now() : null,
+      actualizado_en: trx.fn.now(),
+    });
+  return getAfiliateTramiteById(id, tipo, trx);
+};
+
 const updateRequestStatus = async (id, prestadorId, status, reason, userId, trx = db) => {
   const [request] = await trx('prestador_requests')
     .where({ id, prestador_id: prestadorId })
@@ -191,6 +224,20 @@ const createRequest = async (prestadorId, data, trx = db) => {
       adjunto_nombre: data.adjunto?.nombre || null,
       adjunto_tipo: data.adjunto?.tipo || null,
       adjunto_tamanio: data.adjunto?.tamanio || null,
+      // Campos específicos por tipo
+      medico_nombre: data.medico || null,
+      especialidad: data.especialidad || null,
+      lugar_atencion: data.lugarAtencion || null,
+      fecha_prevista: data.fechaPrevista || null,
+      dias_internacion: data.diasInternacion || null,
+      medicamento_nombre: data.medicamento || null,
+      medicamento_presentacion: data.presentacion || null,
+      medicamento_cantidad: data.cantidad || null,
+      fecha_emision: data.fechaEmision || null,
+      factura_cuit: data.facturaCuit || null,
+      factura_valor_total: data.facturaValor || null,
+      forma_pago: data.formaPago || null,
+      cbu: data.cbu || null,
     })
     .returning('*');
 
@@ -571,4 +618,7 @@ module.exports = {
   createWorkflowAuditLog,
   getNotifications,
   markNotificationAsRead,
+  getAfiliateTramitesByTipo,
+  getAfiliateTramiteById,
+  updateAfiliateTramiteStatus,
 };
