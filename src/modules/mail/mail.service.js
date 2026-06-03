@@ -1,4 +1,4 @@
-const transporter = require('../../config/mail.config');
+const { transporter, isMailEnabled } = require('../../config/mail.config');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -64,6 +64,11 @@ const renderTemplate = async (templateName, context = {}) => {
  * @param {Object} context - Variables para interpolar en la plantilla
  */
 const sendEmail = async (to, subject, templateName, context = {}) => {
+  if (!isMailEnabled) {
+    console.warn(`[MAIL] SMTP deshabilitado. Se omitió el envío de '${templateName}'.`);
+    return null;
+  }
+
   try {
     const html = await renderTemplate(templateName, context);
 
