@@ -18,6 +18,10 @@ const path = require('path');
 
 const app = express();
 
+// Confiar en el proxy reverso de producción para interpretar correctamente
+// cabeceras como X-Forwarded-For/X-Forwarded-Proto y emitir cookies seguras.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
