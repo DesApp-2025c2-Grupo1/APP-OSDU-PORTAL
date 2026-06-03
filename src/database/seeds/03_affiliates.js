@@ -28,4 +28,12 @@ exports.seed = async function (knex) {
             actualizado_en: new Date()
         }
     ]);
+
+    await knex.raw(`
+      SELECT setval(
+        pg_get_serial_sequence('afiliados', 'id'),
+        (SELECT COALESCE(MAX(id), 1) FROM afiliados),
+        true
+      )
+    `);
 };

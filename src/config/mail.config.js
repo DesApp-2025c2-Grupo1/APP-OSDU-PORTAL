@@ -1,8 +1,12 @@
 const nodemailer = require('nodemailer');
 
+const smtpHost = process.env.SMTP_HOST;
+const smtpPort = process.env.SMTP_PORT || 1025;
+const isMailEnabled = Boolean(smtpHost);
+
 const mailConfig = {
-  host: process.env.SMTP_HOST || 'localhost',
-  port: process.env.SMTP_PORT || 1025,
+  host: smtpHost,
+  port: smtpPort,
   secure: false, // true for 465, false for other ports
   auth: process.env.SMTP_USER ? {
     user: process.env.SMTP_USER,
@@ -13,7 +17,7 @@ const mailConfig = {
 const transporter = nodemailer.createTransport(mailConfig);
 
 // Verificar la conexión al inicio
-if (process.env.NODE_ENV !== 'test') {
+if (isMailEnabled && process.env.NODE_ENV !== 'test') {
   transporter.verify((error) => {
     if (error) {
       console.error('Error al conectar con el servidor SMTP:', error);
@@ -21,6 +25,8 @@ if (process.env.NODE_ENV !== 'test') {
       console.log('Servidor SMTP listo para enviar correos');
     }
   });
+} else if (process.env.NODE_ENV !== 'test') {
+  console.warn('SMTP deshabilitado: definir SMTP_HOST para enviar correos');
 }
 
-module.exports = transporter;
+module.exports = { transporter, isMailEnabled };
