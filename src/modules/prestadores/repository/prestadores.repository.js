@@ -256,10 +256,10 @@ const getAppointmentsByMonth = async (prestadorId, year, month, trx = db) => {
   // Usamos EXTRACT para compatibilidad con PostgreSQL (campos DATE no soportan LIKE)
   return trx('prestador_appointments')
     .where('prestador_id', prestadorId)
-    .whereRaw('EXTRACT(YEAR FROM appointment_date) = ?', [Number(year)])
-    .whereRaw('EXTRACT(MONTH FROM appointment_date) = ?', [Number(paddedMonth)])
-    .select('appointment_date')
-    .groupBy('appointment_date');
+    .whereRaw('EXTRACT(YEAR FROM fecha_turno) = ?', [Number(year)])
+    .whereRaw('EXTRACT(MONTH FROM fecha_turno) = ?', [Number(paddedMonth)])
+    .select('fecha_turno as appointment_date')
+    .groupBy('fecha_turno');
 };
 
 const createAppointment = async (prestadorId, data, trx = db) => {
@@ -575,7 +575,7 @@ const updateRequestStatusAdmin = async (id, { status, motivo, userId }, trx = db
 
 const hasAppointmentWithAffiliate = async (prestadorId, affiliateId, trx = db) => {
   return trx('prestador_appointments')
-    .where({ affiliate_id: affiliateId, prestador_id: prestadorId })
+    .where({ afiliado_id: affiliateId, prestador_id: prestadorId })
     .first();
 };
 

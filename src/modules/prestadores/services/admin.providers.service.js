@@ -87,7 +87,7 @@ const validateOwnCuitAccess = async (req, targetCuit) => {
   const role = req.user?.role || req.user?.role_name;
   if (role === 'PRESTADOR') {
     const userId = req.user?.id || req.user?.id_usuario || req.user?.userId;
-    const p = await db('prestadores').where('user_id', userId).first();
+    const p = await db('prestadores').where('usuario_id', userId).first();
     if (!p || normalizeCuit(p.cuit) !== normalizeCuit(targetCuit)) {
       throw new HttpError(403, 'Acceso denegado. No tienes permisos para acceder a los datos de este prestador.');
     }
