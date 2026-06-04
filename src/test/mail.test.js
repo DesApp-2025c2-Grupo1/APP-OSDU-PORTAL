@@ -13,6 +13,17 @@ describe('Mail templates', () => {
     expect(html).toContain('ClaveTemporal123');
   });
 
+  it('el correo de solicitud recibida no incluye la clave inicial', async () => {
+    const html = await renderTemplate('registration_received', {
+      name: 'Ana',
+    });
+
+    expect(html).toContain('Gracias por anotarte');
+    expect(html).toContain('Un usuario administrador revisará la información');
+    expect(html).not.toContain('ClaveTemporal123');
+    expect(html).not.toContain('contraseña inicial');
+  });
+
   it('no menciona UNAHUR en los templates de correo', () => {
     const templatesDir = path.join(__dirname, '../modules/mail/templates');
     const templateFiles = fs.readdirSync(templatesDir).filter((file) => file.endsWith('.html'));
