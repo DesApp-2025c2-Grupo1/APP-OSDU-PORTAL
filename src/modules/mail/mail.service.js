@@ -73,7 +73,7 @@ const sendEmail = async (to, subject, templateName, context = {}) => {
     const html = await renderTemplate(templateName, context);
 
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@unahur-portal.com',
+      from: process.env.EMAIL_FROM || 'noreply@osdu.com.ar',
       to,
       subject,
       html,

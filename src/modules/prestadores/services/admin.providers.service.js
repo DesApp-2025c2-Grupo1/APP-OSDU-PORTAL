@@ -233,12 +233,12 @@ const createAuditLog = async (trx, { prestadorId, adminUserId, action, reason = 
 
 const generateTemporaryPassword = () => {
   const token = crypto.randomBytes(4).toString('hex');
-  return `Medi-${token}`;
+  return `OSDU-${token}`;
 };
 
 const sendProviderCredentialsEmail = async ({ to, providerName, cuit, temporaryPassword = '' }) => {
   if (temporaryPassword) {
-    return mailService.sendEmail(to, 'Credenciales de acceso MediUNAHUR', 'provider_credentials', {
+    return mailService.sendEmail(to, 'Credenciales de acceso OSDU', 'provider_credentials', {
       providerName,
       cuit,
       email: to,
@@ -246,7 +246,7 @@ const sendProviderCredentialsEmail = async ({ to, providerName, cuit, temporaryP
     });
   }
 
-  return mailService.sendEmail(to, 'Recordatorio de acceso MediUNAHUR', 'provider_credentials_reminder', {
+  return mailService.sendEmail(to, 'Recordatorio de acceso OSDU', 'provider_credentials_reminder', {
     providerName,
     cuit,
     email: to

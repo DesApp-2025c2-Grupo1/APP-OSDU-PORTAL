@@ -1,7 +1,7 @@
 const { sendEmail } = require('./mail.service');
 
 const TEMPLATE_MAP = new Map([
-  ['WELCOME',        { subject: '¡Bienvenido a UNAHUR!',                  template: 'welcome' }],
+  ['WELCOME',        { subject: '¡Bienvenido a OSDU!',                  template: 'welcome' }],
   ['PWD_CHANGE',     { subject: 'Contraseña cambiada',                     template: 'password_changed' }],
   ['APPT_CREATE',    { subject: 'Nuevo turno creado',                      template: 'appointment_created' }],
   ['APPT_STATUS',    { subject: 'Estado del turno actualizado',             template: 'appointment_status' }],
