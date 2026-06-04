@@ -124,6 +124,7 @@ const createAffiliate = async (req, res) => {
     // Notificación DESPUÉS del commit, sin bloquear la respuesta al formulario.
     void notify('WELCOME', affiliate.email, {
       name: value.nombre,
+      initialPassword: process.env.DEFAULT_USER_PASSWORD,
     });
 
     return res.status(200).json({
