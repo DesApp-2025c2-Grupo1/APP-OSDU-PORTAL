@@ -1,23 +1,23 @@
 const nodemailer = require('nodemailer');
 
 const smtpHost = process.env.SMTP_HOST;
-const smtpPort = process.env.SMTP_PORT || 1025;
-const isMailEnabled = Boolean(smtpHost);
+const smtpPort = Number(process.env.SMTP_PORT || 1025);
+const isMailEnabled = Boolean(smtpHost) && process.env.NODE_ENV !== 'test';
 
 const mailConfig = {
   host: smtpHost,
   port: smtpPort,
-  secure: false, // true for 465, false for other ports
+  secure: smtpPort === 465,
   auth: process.env.SMTP_USER ? {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   } : undefined,
 };
 
-const transporter = nodemailer.createTransport(mailConfig);
+const transporter = isMailEnabled ? nodemailer.createTransport(mailConfig) : null;
 
 // Verificar la conexión al inicio
-if (isMailEnabled && process.env.NODE_ENV !== 'test') {
+if (isMailEnabled) {
   transporter.verify((error) => {
     if (error) {
       console.error('Error al conectar con el servidor SMTP:', error);
