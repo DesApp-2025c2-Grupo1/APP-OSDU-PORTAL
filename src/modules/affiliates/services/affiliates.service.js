@@ -39,6 +39,8 @@ const DIA_MAP = {
 const normalizeDia = (d) => typeof d === 'number' ? d : (DIA_MAP[d] ?? -1);
 
 const createAffiliate = async (req, res) => {
+  const isAdminCreation = req.user && req.user.role_name === 'ADMIN';
+
   if (req.body.grupoFamiliar && typeof req.body.grupoFamiliar === 'string') {
     try {
       req.body.grupoFamiliar = JSON.parse(req.body.grupoFamiliar);
@@ -86,7 +88,7 @@ const createAffiliate = async (req, res) => {
     }
     affiliate.alta_programada_en = activationDate;
     affiliate.activo = false;
-  } else if (req.user && req.user.role_name === 'ADMIN') {
+  } else if (isAdminCreation) {
     affiliate.activo = true;
   }
 
@@ -122,14 +124,24 @@ const createAffiliate = async (req, res) => {
     await trx.commit();
 
     // Notificación DESPUÉS del commit, sin bloquear la respuesta al formulario.
-    void notify('WELCOME', affiliate.email, {
-      name: value.nombre,
-      initialPassword: process.env.DEFAULT_USER_PASSWORD,
-    });
+    if (isAdminCreation && !scheduledActivation) {
+      void notify('WELCOME', affiliate.email, {
+        name: value.nombre,
+        initialPassword: process.env.DEFAULT_USER_PASSWORD,
+      });
+    } else if (!isAdminCreation) {
+      void notify('REG_RECEIVED', affiliate.email, {
+        name: value.nombre,
+      });
+    }
 
     return res.status(200).json({
       id: newAffiliate.id,
-      message: scheduledActivation ? 'Afiliado programado exitosamente' : 'Afiliado creado exitosamente',
+      message: scheduledActivation
+        ? 'Afiliado programado exitosamente'
+        : isAdminCreation
+          ? 'Afiliado creado exitosamente'
+          : 'Solicitud de afiliación recibida exitosamente',
       scheduledActivationAt: scheduledActivation ? new Date(scheduledActivation).toISOString() : null,
     });
 
@@ -193,8 +205,9 @@ const activateAffiliate = async (req, res) => {
 
     await affiliateRepository.updateAffiliateById(id, { status: true, activation_scheduled_at: null });
 
-    await notify('ACCOUNT_ON', affiliate.email, {
-      name: `${affiliate.first_name} ${affiliate.last_name}`.trim()
+    await notify('WELCOME', affiliate.email, {
+      name: `${affiliate.first_name} ${affiliate.last_name}`.trim(),
+      initialPassword: process.env.DEFAULT_USER_PASSWORD,
     });
 
     return res.status(200).json({ message: 'Afiliado activado exitosamente' });

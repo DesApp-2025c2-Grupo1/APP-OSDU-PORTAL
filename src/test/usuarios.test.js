@@ -154,9 +154,9 @@ describe('Affiliates Endpoints', () => {
 
       expect(res.statusCode).toBe(200);
       expect(notificationService.notify).toHaveBeenCalledWith(
-        'ACCOUNT_ON',
+        'WELCOME',
         mockAffiliate.email,
-        expect.objectContaining({ name: 'Juan López' })
+        expect.objectContaining({ name: 'Juan López', initialPassword: process.env.DEFAULT_USER_PASSWORD })
       );
     });
 
