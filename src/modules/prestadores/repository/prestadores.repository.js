@@ -60,6 +60,7 @@ const requestColumns = [
   'adjunto_nombre as attachment_name',
   'adjunto_tipo as attachment_type',
   'adjunto_tamanio as attachment_size',
+  'adjunto_ruta as attachment_path',
   'motivo_estado as status_reason',
   'resuelto_por_usuario_id as resolved_by_usuario_id',
   'resuelto_en as resolved_at',

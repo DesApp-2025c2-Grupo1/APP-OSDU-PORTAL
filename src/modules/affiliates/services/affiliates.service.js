@@ -419,6 +419,8 @@ const serializeAffiliate = async (affiliate, situationsByAffiliate = null) => {
     fecha_alta: affiliate.activation_scheduled_at || affiliate.created_at,
     altaProgramada: affiliate.activation_scheduled_at || null,
     bajaProgramada: affiliate.deactivation_scheduled_at || null,
+    dni_document_path: affiliate.dni_document_path || null,
+    payslip_document_path: affiliate.payslip_document_path || null,
     situaciones
   };
 };
@@ -1215,6 +1217,7 @@ module.exports = {
   adminGetReintegros,
   adminUpdateReintegroStatus,
   _private: {
-    normalizeReintegroPayload
+    normalizeReintegroPayload,
+    serializeAffiliate,
   }
 };
