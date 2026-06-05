@@ -31,10 +31,10 @@ const ESTADOS_TURNO = new Set(['reservado', 'confirmado', 'atendido', 'cancelado
 
 const formatDate = (value) => {
   const date = new Date(value);
-  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(date.getUTCDate()).padStart(2, '0');
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
   const yyyy = date.getUTCFullYear();
-  return `${mm}/${dd}/${yyyy}`;
+  return `${dd}/${mm}/${yyyy}`;
 };
 
 const toISODate = (value) => {
@@ -89,7 +89,8 @@ const serializeRequest = (request) => ({
   adjunto: request.attachment_name ? {
     nombre: request.attachment_name,
     tipo: request.attachment_type,
-    tamanio: request.attachment_size
+    tamanio: request.attachment_size,
+    ruta: request.attachment_path ? `/uploads/${request.attachment_path}` : null,
   } : null,
 });
 
@@ -960,6 +961,7 @@ module.exports = {
   getNotifications,
   markNotificationAsRead,
   _private: {
-    normalizeSolicitudStatusPayload
+    normalizeSolicitudStatusPayload,
+    serializeRequest,
   }
 };
