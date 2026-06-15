@@ -236,6 +236,14 @@ const generateTemporaryPassword = () => {
   return `OSDU-${token}`;
 };
 
+const getDefaultProviderPassword = () => {
+  const defaultPassword = process.env.DEFAULT_USER_PASSWORD;
+  if (!defaultPassword) {
+    throw new HttpError(500, 'DEFAULT_USER_PASSWORD no configurada');
+  }
+  return defaultPassword;
+};
+
 const sendProviderCredentialsEmail = async ({ to, providerName, cuit, temporaryPassword = '' }) => {
   if (temporaryPassword) {
     return mailService.sendEmail(to, 'Credenciales de acceso OSDU', 'provider_credentials', {
@@ -531,6 +539,7 @@ const create = async (req, res) => {
   try {
     const payload = normalizeProviderPayload(req.body);
     const validated = validateProviderPayload(payload);
+    const defaultPassword = getDefaultProviderPassword();
     const result = await db.transaction(async (trx) => {
       await validateDuplicatesForCreate(trx, validated);
 
@@ -538,7 +547,7 @@ const create = async (req, res) => {
         ? await resolveCentroMedicoId(trx, payload.centroMedicoId)
         : null;
       const { nombre, apellido } = splitName(validated.nombreCompleto);
-      const hash = await bcrypt.hash(validated.cleanCuit, 10);
+      const hash = await bcrypt.hash(defaultPassword, 10);
 
       const [newUser] = await trx('usuarios').insert({
         email: validated.mails[0],
@@ -605,7 +614,28 @@ const create = async (req, res) => {
       return serializePrestador(created, trx, { includeDetail: true });
     });
 
-    return res.status(201).json(result);
+    await sendProviderCredentialsEmail({
+      to: result.emailPrincipal,
+      providerName: result.nombreCompleto,
+      cuit: result.cuitCuil,
+      temporaryPassword: defaultPassword
+    });
+
+    await db.transaction(async (trx) => {
+      await trx('prestadores').where({ id: result.id }).update({
+        credenciales_enviadas_en: trx.fn.now(),
+        actualizado_en: trx.fn.now()
+      });
+      await createAuditLog(trx, {
+        prestadorId: result.id,
+        adminUserId: getAdminUserId(req),
+        action: 'send_credentials_on_create',
+        metadata: { credentialsSent: true }
+      });
+    });
+
+    const created = await db('prestadores').where('id', result.id).first();
+    return res.status(201).json(await serializePrestador(created, db, { includeDetail: true }));
   } catch (error) {
     return sendError(res, error, 'Error create provider:');
   }
@@ -991,6 +1021,7 @@ module.exports = {
   getAgendasBySpecialty,
   getAgendasByPlaces,
   _private: {
-    normalizeProviderPayload
+    normalizeProviderPayload,
+    getDefaultProviderPassword
   }
 };

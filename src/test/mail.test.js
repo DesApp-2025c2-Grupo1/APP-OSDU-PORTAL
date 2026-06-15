@@ -13,6 +13,20 @@ describe('Mail templates', () => {
     expect(html).toContain('ClaveTemporal123');
   });
 
+  it('incluye las credenciales iniciales en el correo de prestador', async () => {
+    const html = await renderTemplate('provider_credentials', {
+      providerName: 'Dra. Ana Perez',
+      cuit: '20123456789',
+      email: 'ana.perez@example.com',
+      temporaryPassword: 'ClaveTemporal123',
+    });
+
+    expect(html).toContain('Credenciales de acceso al portal de prestadores');
+    expect(html).toContain('20123456789');
+    expect(html).toContain('ana.perez@example.com');
+    expect(html).toContain('ClaveTemporal123');
+  });
+
   it('el correo de solicitud recibida no incluye la clave inicial', async () => {
     const html = await renderTemplate('registration_received', {
       name: 'Ana',
