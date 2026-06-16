@@ -530,7 +530,7 @@ const createAppointment = async (req, res) => {
     assertTime(horaIni, 'horaInicio');
     assertTime(horaFin, 'horaFin');
     if (toMinutes(horaFin) <= toMinutes(horaIni)) throw new HttpError(422, 'La hora de fin debe ser posterior a la de inicio');
-    const motivo = requireText(req.body.motivo, 'motivo', 'El motivo del turno es requerido');
+    const motivo = String(req.body.motivo || '').trim();
 
     const appointment = await db.transaction(async (trx) => {
       const agenda = await prestadoresRepository.findAgendaForAppointment(prestadorId, date, horaIni, horaFin, trx);

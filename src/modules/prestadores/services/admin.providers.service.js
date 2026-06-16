@@ -107,6 +107,7 @@ const validateProviderPayload = (payload, { partial = false } = {}) => {
   const nombreCompleto = String(payload.nombreCompleto || '').trim();
   const lugaresAtencion = Array.isArray(payload.lugaresAtencion) ? payload.lugaresAtencion : [];
   const especialidades = Array.isArray(payload.especialidades) ? payload.especialidades : [];
+  const usesCentroMedico = tipoPrestador === 'profesional' && !!payload.centroMedicoId;
 
   if (!partial || payload.cuitCuil !== undefined) {
     if (!cleanCuit && !String(payload.cuitCuil || '').trim()) addRequired('cuitCuil', 'CUIT/CUIL es requerido');
@@ -138,8 +139,11 @@ const validateProviderPayload = (payload, { partial = false } = {}) => {
     if (especialidades.length === 0) addRequired('especialidades', 'Debe informar al menos una especialidad');
   }
 
-  if (!partial || payload.lugaresAtencion !== undefined) {
+  if ((!partial || payload.lugaresAtencion !== undefined) && !usesCentroMedico) {
     if (lugaresAtencion.length === 0) addRequired('lugaresAtencion', 'Debe informar al menos un lugar de atencion');
+  }
+
+  if (payload.lugaresAtencion !== undefined || (!usesCentroMedico && !partial)) {
     lugaresAtencion.forEach((place, index) => {
       if (!String(place.calle || '').trim()) addRequired(`lugaresAtencion.${index}.calle`, 'Calle es requerida');
       if (!String(place.localidad || '').trim()) addRequired(`lugaresAtencion.${index}.localidad`, 'Localidad es requerida');
@@ -181,6 +185,37 @@ const resolveCentroMedicoId = async (trx, centroMedicoId) => {
   return centro.id;
 };
 
+const getCentroMedicoPlaces = async (trx, centroMedicoId) => {
+  if (!centroMedicoId) return [];
+
+  const places = await trx('lugares_atencion')
+    .where('prestador_id', centroMedicoId)
+    .orderBy('id');
+
+  return places.map((lugar) => ({
+    calle: lugar.calle,
+    localidad: lugar.localidad,
+    provincia: lugar.provincia,
+    cp: lugar.cp,
+    horarios: parseJsonArray(lugar.horarios)
+  }));
+};
+
+const resolvePlacesForPersistence = async (trx, validated, centroMedicoDbId) => {
+  if (validated.lugaresAtencion.length > 0) return validated.lugaresAtencion;
+  if (!centroMedicoDbId) return validated.lugaresAtencion;
+
+  const centroPlaces = await getCentroMedicoPlaces(trx, centroMedicoDbId);
+  if (centroPlaces.length === 0) {
+    throw new HttpError(422, 'El centro medico no tiene lugares de atencion cargados', [{
+      field: 'centroMedicoId',
+      message: 'El centro medico seleccionado no tiene direccion cargada'
+    }]);
+  }
+
+  return centroPlaces;
+};
+
 const validateDuplicatesForCreate = async (trx, { cleanCuit, mails, tipoPrestador, nombreCompleto }) => {
   const existingPrestador = await trx('prestadores').where({ cuit: cleanCuit }).first();
   if (existingPrestador) throw new HttpError(409, 'Ya existe un prestador con ese CUIT/CUIL');
@@ -209,6 +244,17 @@ const getAdminUserId = (req) => req.user?.id || req.user?.id_usuario || req.user
 
 const normalizeReason = (value) => String(value || '').trim();
 
+const getTodayDate = () => {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return formatter.format(now);
+};
+
 const requireReason = (value, actionLabel) => {
   const motivo = normalizeReason(value);
   if (!motivo) {
@@ -229,6 +275,81 @@ const createAuditLog = async (trx, { prestadorId, adminUserId, action, reason = 
     metadata: JSON.stringify(metadata || {}),
     creado_en: trx.fn.now()
   });
+};
+
+const cancelFutureReservedAppointments = async (trx, queryBuilder, reason) => {
+  const today = getTodayDate();
+  const rows = await queryBuilder
+    .clone()
+    .where('estado', 'reservado')
+    .andWhere('fecha_turno', '>=', today)
+    .select('id');
+
+  if (rows.length === 0) return 0;
+
+  await trx('prestador_appointments')
+    .whereIn('id', rows.map((row) => row.id))
+    .update({
+      estado: 'cancelado',
+      motivo_cancelacion: reason,
+      actualizado_en: trx.fn.now()
+    });
+
+  return rows.length;
+};
+
+const deactivateCenterDependencies = async (trx, centro, motivo) => {
+  const centerPlaces = await trx('lugares_atencion')
+    .where('prestador_id', centro.id)
+    .pluck('id');
+  const associatedProviders = await trx('prestadores')
+    .where('centro_medico_id', centro.id)
+    .select('id');
+  const associatedProviderIds = associatedProviders.map((provider) => provider.id);
+
+  const affectedAgendaQuery = trx('agendas')
+    .where((builder) => {
+      builder.where('prestador_id', centro.id);
+      if (centerPlaces.length > 0) builder.orWhereIn('lugar_id', centerPlaces);
+    });
+  const affectedAgendas = await affectedAgendaQuery.clone().select('id');
+  const affectedAgendaIds = affectedAgendas.map((agenda) => agenda.id);
+
+  if (associatedProviderIds.length > 0) {
+    await trx('prestadores')
+      .whereIn('id', associatedProviderIds)
+      .update({
+        centro_medico_id: null,
+        actualizado_en: trx.fn.now()
+      });
+  }
+
+  if (affectedAgendaIds.length > 0) {
+    await trx('agendas')
+      .whereIn('id', affectedAgendaIds)
+      .update({
+        esta_activo: false,
+        fecha_fin: getTodayDate(),
+        actualizado_en: trx.fn.now()
+      });
+  }
+
+  const canceledAppointments = affectedAgendaIds.length > 0 || centerPlaces.length > 0
+    ? await cancelFutureReservedAppointments(
+      trx,
+      trx('prestador_appointments').where((builder) => {
+        if (affectedAgendaIds.length > 0) builder.whereIn('agenda_id', affectedAgendaIds);
+        if (centerPlaces.length > 0) builder.orWhereIn('lugar_id', centerPlaces);
+      }),
+      `Cancelado por baja del centro medico: ${motivo}`
+    )
+    : 0;
+
+  return {
+    unlinkedProviders: associatedProviderIds.length,
+    deactivatedAgendas: affectedAgendaIds.length,
+    canceledAppointments
+  };
 };
 
 const generateTemporaryPassword = () => {
@@ -546,6 +667,7 @@ const create = async (req, res) => {
       const centroMedicoDbId = validated.tipoPrestador === 'profesional'
         ? await resolveCentroMedicoId(trx, payload.centroMedicoId)
         : null;
+      const lugaresParaPersistir = await resolvePlacesForPersistence(trx, validated, centroMedicoDbId);
       const { nombre, apellido } = splitName(validated.nombreCompleto);
       const hash = await bcrypt.hash(defaultPassword, 10);
 
@@ -591,7 +713,7 @@ const create = async (req, res) => {
         })));
       }
 
-      await trx('lugares_atencion').insert(validated.lugaresAtencion.map((lugar) => ({
+      await trx('lugares_atencion').insert(lugaresParaPersistir.map((lugar) => ({
         prestador_id: prestadorId,
         calle: String(lugar.calle || '').trim(),
         localidad: String(lugar.localidad || '').trim(),
@@ -726,8 +848,20 @@ const update = async (req, res) => {
             }]);
           }
         }
+        const lugaresParaPersistir = await resolvePlacesForPersistence(trx, validated, updateData.centro_medico_id || p.centro_medico_id);
         await trx('lugares_atencion').where('prestador_id', p.id).del();
-        await trx('lugares_atencion').insert(validated.lugaresAtencion.map((lugar) => ({
+        await trx('lugares_atencion').insert(lugaresParaPersistir.map((lugar) => ({
+          prestador_id: p.id,
+          calle: String(lugar.calle || '').trim(),
+          localidad: String(lugar.localidad || '').trim(),
+          provincia: String(lugar.provincia || '').trim(),
+          cp: String(lugar.cp || '').trim(),
+          horarios: JSON.stringify(parseJsonArray(lugar.horarios))
+        })));
+      } else if (payload.centroMedicoId !== undefined && updateData.centro_medico_id) {
+        const lugaresParaPersistir = await resolvePlacesForPersistence(trx, { ...validated, lugaresAtencion: [] }, updateData.centro_medico_id);
+        await trx('lugares_atencion').where('prestador_id', p.id).del();
+        await trx('lugares_atencion').insert(lugaresParaPersistir.map((lugar) => ({
           prestador_id: p.id,
           calle: String(lugar.calle || '').trim(),
           localidad: String(lugar.localidad || '').trim(),
@@ -762,6 +896,7 @@ const update = async (req, res) => {
 const remove = async (req, res) => {
   try {
     const motivo = requireReason(req.body?.motivo, 'dar de baja un prestador');
+    let metadata = {};
     await db.transaction(async (trx) => {
       const p = await findPrestadorByCuitOrThrow(trx, req.params.cuit);
       await trx('prestadores').where('id', p.id).update({
@@ -771,11 +906,24 @@ const remove = async (req, res) => {
         motivo_baja: motivo,
         actualizado_en: trx.fn.now()
       });
+
+      if (p.tipo_prestador === 'centro_medico') {
+        metadata = await deactivateCenterDependencies(trx, p, motivo);
+      } else {
+        const canceledAppointments = await cancelFutureReservedAppointments(
+          trx,
+          trx('prestador_appointments').where('prestador_id', p.id),
+          `Cancelado por baja del prestador: ${motivo}`
+        );
+        metadata = { canceledAppointments };
+      }
+
       await createAuditLog(trx, {
         prestadorId: p.id,
         adminUserId: getAdminUserId(req),
         action: 'deactivate',
-        reason: motivo
+        reason: motivo,
+        metadata
       });
     });
     return res.status(204).send();
