@@ -285,14 +285,33 @@ const createAppointment = async (prestadorId, data, trx = db) => {
 };
 
 const findAgendaForAppointment = async (prestadorId, date, startTime, endTime, trx = db) => {
-  const agendas = await trx('agendas')
-    .where({ prestador_id: prestadorId, esta_activo: true })
+  const agendas = await trx('agendas as a')
+    .join('prestadores as p', 'a.prestador_id', 'p.id')
+    .leftJoin('prestadores as centro', 'p.centro_medico_id', 'centro.id')
+    .leftJoin('lugares_atencion as l', 'a.lugar_id', 'l.id')
+    .leftJoin('prestadores as lugar_p', 'l.prestador_id', 'lugar_p.id')
+    .where({ 'a.prestador_id': prestadorId, 'a.esta_activo': true })
+    .andWhere('p.activo', true)
+    .andWhere('p.estado', 'activo')
     .andWhere((builder) => {
-      builder.whereNull('fecha_inicio').orWhere('fecha_inicio', '<=', date);
+      builder.whereNull('p.centro_medico_id')
+        .orWhere((sub) => {
+          sub.where('centro.activo', true).andWhere('centro.estado', 'activo');
+        });
     })
     .andWhere((builder) => {
-      builder.whereNull('fecha_fin').orWhere('fecha_fin', '>=', date);
-    });
+      builder.whereNull('lugar_p.id')
+        .orWhere((sub) => {
+          sub.where('lugar_p.activo', true).andWhere('lugar_p.estado', 'activo');
+        });
+    })
+    .andWhere((builder) => {
+      builder.whereNull('a.fecha_inicio').orWhere('a.fecha_inicio', '<=', date);
+    })
+    .andWhere((builder) => {
+      builder.whereNull('a.fecha_fin').orWhere('a.fecha_fin', '>=', date);
+    })
+    .select('a.*');
 
   const day = new Date(`${date}T00:00:00`).getDay();
   return agendas.find((agenda) => {

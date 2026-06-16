@@ -1,6 +1,87 @@
 const db = require('../../../database/db');
 
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
 const getActorUserId = (req) => req.user?.id || req.user?.id_usuario || req.user?.userId || null;
+
+const DIA_MAP = {
+  Domingo: 0, domingo: 0, Sunday: 0,
+  Lunes: 1, lunes: 1, Monday: 1,
+  Martes: 2, martes: 2, Tuesday: 2,
+  Miercoles: 3, miercoles: 3, Miércoles: 3, miércoles: 3, Wednesday: 3,
+  Jueves: 4, jueves: 4, Thursday: 4,
+  Viernes: 5, viernes: 5, Friday: 5,
+  Sabado: 6, sabado: 6, Sábado: 6, sábado: 6, Saturday: 6,
+};
+
+const normalizeDia = (dia) => typeof dia === 'number' ? dia : (DIA_MAP[dia] ?? -1);
+
+const parseJsonArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const toDateOnly = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).split('T')[0];
+};
+
+const toMinutes = (value) => {
+  const [hh, mm] = String(value || '').split(':').map(Number);
+  return hh * 60 + mm;
+};
+
+const dateRangesOverlap = (aStart, aEnd, bStart, bEnd) => {
+  const startA = toDateOnly(aStart) || '0001-01-01';
+  const endA = toDateOnly(aEnd) || '9999-12-31';
+  const startB = toDateOnly(bStart) || '0001-01-01';
+  const endB = toDateOnly(bEnd) || '9999-12-31';
+  return startA <= endB && startB <= endA;
+};
+
+const blocksOverlap = (left = [], right = []) => {
+  return left.some((a) => right.some((b) => {
+    const aDays = (a.dias || []).map(normalizeDia).filter((dia) => dia >= 0);
+    const bDays = (b.dias || []).map(normalizeDia).filter((dia) => dia >= 0);
+    const sameDay = aDays.length === 0 || bDays.length === 0 || aDays.some((dia) => bDays.includes(dia));
+    if (!sameDay) return false;
+
+    return toMinutes(a.desde) < toMinutes(b.hasta) && toMinutes(b.desde) < toMinutes(a.hasta);
+  }));
+};
+
+const assertNoOverlappingAgenda = async (trx, { prestadorId, fechaInicio, fechaFin, bloques, estaActivo = true, ignoreId = null }) => {
+  if (!estaActivo) return;
+  const nextBlocks = parseJsonArray(bloques);
+  if (nextBlocks.length === 0) return;
+
+  const query = trx('agendas')
+    .where({ prestador_id: prestadorId, esta_activo: true });
+
+  if (ignoreId) query.whereNot('id', ignoreId);
+
+  const agendas = await query.select('id', 'fecha_inicio', 'fecha_fin', 'bloques');
+  const overlapping = agendas.find((agenda) => {
+    return dateRangesOverlap(fechaInicio, fechaFin, agenda.fecha_inicio, agenda.fecha_fin)
+      && blocksOverlap(nextBlocks, parseJsonArray(agenda.bloques));
+  });
+
+  if (overlapping) {
+    throw new HttpError(409, 'Ya existe una agenda activa para este prestador que se superpone con esos días y horarios.');
+  }
+};
 
 const createPrestadorAuditLog = async (trx, req, { prestadorId, action, reason = null, metadata = {} }) => {
   if (!prestadorId) return;
@@ -78,6 +159,10 @@ const serializeAgenda = (row) => ({
 });
 
 const sendError = (res, e, context) => {
+  if (e instanceof HttpError) {
+    return res.status(e.status).json({ message: e.message, error: e.message });
+  }
+
   console.error(`[AGENDAS] Error en ${context}:`, e.message);
   return res.status(500).json({ message: 'Error interno del servidor' });
 };
@@ -161,6 +246,14 @@ const create = async (req, res) => {
     }
 
     const id = await db.transaction(async (trx) => {
+      await assertNoOverlappingAgenda(trx, {
+        prestadorId: p.id,
+        fechaInicio: fechaInicio || null,
+        fechaFin: fechaFin || null,
+        bloques: bloques || [],
+        estaActivo: true
+      });
+
       const [newId] = await trx('agendas').insert({
         prestador_id: p.id,
         especialidad_id: idEspecialidad,
@@ -218,6 +311,15 @@ const update = async (req, res) => {
 
     if (Object.keys(updateData).length > 0) {
       await db.transaction(async (trx) => {
+        await assertNoOverlappingAgenda(trx, {
+          prestadorId: updateData.prestador_id || existing.prestador_id,
+          fechaInicio: updateData.fecha_inicio !== undefined ? updateData.fecha_inicio : existing.fecha_inicio,
+          fechaFin: updateData.fecha_fin !== undefined ? updateData.fecha_fin : existing.fecha_fin,
+          bloques: updateData.bloques !== undefined ? updateData.bloques : existing.bloques,
+          estaActivo: updateData.esta_activo !== undefined ? updateData.esta_activo : existing.esta_activo,
+          ignoreId: existing.id
+        });
+
         await trx('agendas').where('id', req.params.id).update(updateData);
         await createPrestadorAuditLog(trx, req, {
           prestadorId: updateData.prestador_id || existing.prestador_id,

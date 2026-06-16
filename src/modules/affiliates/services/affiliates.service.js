@@ -38,6 +38,40 @@ const DIA_MAP = {
 };
 const normalizeDia = (d) => typeof d === 'number' ? d : (DIA_MAP[d] ?? -1);
 
+const getBookableAgenda = async (agendaId) => {
+  const agenda = await db('agendas as a')
+    .join('prestadores as p', 'a.prestador_id', 'p.id')
+    .leftJoin('prestadores as centro', 'p.centro_medico_id', 'centro.id')
+    .leftJoin('lugares_atencion as l', 'a.lugar_id', 'l.id')
+    .leftJoin('prestadores as lugar_p', 'l.prestador_id', 'lugar_p.id')
+    .where('a.id', agendaId)
+    .select(
+      'a.*',
+      'p.activo as prestador_activo',
+      'p.estado as prestador_estado',
+      'p.centro_medico_id',
+      'centro.activo as centro_activo',
+      'centro.estado as centro_estado',
+      'lugar_p.activo as lugar_prestador_activo',
+      'lugar_p.estado as lugar_prestador_estado'
+    )
+    .first();
+
+  if (!agenda) return { status: 404, message: 'Agenda no encontrada' };
+  if (!agenda.esta_activo) return { status: 422, message: 'La agenda no está activa' };
+  if (!agenda.prestador_activo || agenda.prestador_estado !== 'activo') {
+    return { status: 422, message: 'El prestador no está activo' };
+  }
+  if (agenda.centro_medico_id && (!agenda.centro_activo || agenda.centro_estado !== 'activo')) {
+    return { status: 422, message: 'El centro médico asociado no está activo' };
+  }
+  if (agenda.lugar_prestador_activo === false || (agenda.lugar_prestador_estado && agenda.lugar_prestador_estado !== 'activo')) {
+    return { status: 422, message: 'El lugar de atención no está activo' };
+  }
+
+  return { agenda };
+};
+
 const createAffiliate = async (req, res) => {
   const isAdminCreation = req.user && req.user.role_name === 'ADMIN';
 
@@ -643,9 +677,9 @@ const getAvailableSlots = async (req, res) => {
     if (!fecha) return res.status(400).json({ message: 'fecha es requerida' });
     assertISODate(fecha);
 
-    const agenda = await db('agendas').where({ id: agendaId }).first();
-    if (!agenda) return res.status(404).json({ message: 'Agenda no encontrada' });
-    if (!agenda.esta_activo) return res.status(422).json({ message: 'La agenda no está activa' });
+    const agendaResult = await getBookableAgenda(agendaId);
+    if (agendaResult.message) return res.status(agendaResult.status).json({ message: agendaResult.message });
+    const agenda = agendaResult.agenda;
 
     const dayOfWeek = new Date(`${fecha}T00:00:00-03:00`).getDay();
     const bloques = Array.isArray(agenda.bloques) ? agenda.bloques : JSON.parse(agenda.bloques || '[]');
@@ -687,6 +721,7 @@ const bookAppointment = async (req, res) => {
     if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado' });
 
     const { agendaId, fecha, horaIni, horaFin, motivo, afiliadoId } = req.body;
+    const motivoTurno = String(motivo || '').trim();
     const target = await resolveTargetAffiliate(affiliate, afiliadoId);
 
     if (!agendaId) return res.status(400).json({ message: 'agendaId es requerido' });
@@ -695,11 +730,9 @@ const bookAppointment = async (req, res) => {
     assertTime(horaFin, 'horaFin');
     if (toMinutes(horaFin) <= toMinutes(horaIni))
       return res.status(422).json({ message: 'horaFin debe ser posterior a horaIni' });
-    if (!motivo || !String(motivo).trim())
-      return res.status(400).json({ message: 'El motivo es requerido' });
-
-    const agenda = await db('agendas').where({ id: agendaId, esta_activo: true }).first();
-    if (!agenda) return res.status(404).json({ message: 'Agenda no encontrada o inactiva' });
+    const agendaResult = await getBookableAgenda(agendaId);
+    if (agendaResult.message) return res.status(agendaResult.status).json({ message: agendaResult.message });
+    const agenda = agendaResult.agenda;
 
     const agendaValida = await findAgendaForAppointment(agenda.prestador_id, fecha, horaIni, horaFin);
     if (!agendaValida) return res.status(422).json({ message: 'El horario no pertenece a la agenda disponible' });
@@ -717,7 +750,7 @@ const bookAppointment = async (req, res) => {
       fecha,
       horaIni,
       horaFin,
-      motivo: String(motivo).trim(),
+      motivo: motivoTurno,
     });
 
     // Notificación al titular (quien tiene el email de sesión)
@@ -726,7 +759,7 @@ const bookAppointment = async (req, res) => {
       date: fecha,
       time: `${horaIni} - ${horaFin}`,
       doctor: '',
-      motivo: String(motivo).trim(),
+      motivo: motivoTurno,
     });
 
     return res.status(201).json({
