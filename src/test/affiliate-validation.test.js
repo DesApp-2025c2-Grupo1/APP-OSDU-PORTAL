@@ -28,7 +28,9 @@ describe('Affiliate payload contract', () => {
 
     expect(error).toBeUndefined();
     expect(value.nroDocumento).toBe('12345678');
+    expect(value.fechaNacimiento).toBe('1990-01-01');
     expect(value.grupoFamiliar[0].nroDocumento).toBe('23456789');
+    expect(value.grupoFamiliar[0].fechaNacimiento).toBe('2015-01-01');
   });
 
   it('normaliza el payload en inglés usado por el frontend admin', () => {
@@ -60,6 +62,7 @@ describe('Affiliate payload contract', () => {
 
     expect(error).toBeUndefined();
     expect(value).toMatchObject({
+      fechaNacimiento: '1990-01-01',
       nroDocumento: '12345678',
       tipoDocumento: 'DNI',
       nombre: 'Ana',
@@ -68,6 +71,7 @@ describe('Affiliate payload contract', () => {
       grupoFamiliar: [{
         nroDocumento: '23456789',
         parentesco: 'Hijo',
+        fechaNacimiento: '2015-01-01',
         nombre: 'Luis',
         apellido: 'Perez',
       }],

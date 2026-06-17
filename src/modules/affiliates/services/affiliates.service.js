@@ -364,6 +364,17 @@ const toDateStr = (val) => {
   return String(val).split('T')[0];
 };
 
+const toDisplayDate = (val) => {
+  const isoDate = toDateStr(val);
+  if (!isoDate) return '';
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
+};
+
 const parseJsonArray = (value) => {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -841,7 +852,7 @@ const serializeReintegro = (r) => ({
   id: r.id,
   nro: r.request_number,
   idIntegrante: String(r.affiliate_id),
-  fechaPrestacion: toDateStr(r.request_date),
+  fechaPrestacion: toDisplayDate(r.request_date),
   medico: r.medico_nombre,
   especialidad: r.especialidad,
   lugarAtencion: r.lugar_atencion,
@@ -854,7 +865,7 @@ const serializeReintegro = (r) => ({
   observaciones: r.description || '',
   estado: STATUS_REINTEGRO_MAP[r.status] || 'Recibido',
   estadoRaw: r.status,
-  fechaEstado: toDateStr(r.updated_at || r.created_at),
+  fechaEstado: toDisplayDate(r.updated_at || r.created_at),
   mensajeObservacion: r.status === 'Observada' ? (r.status_reason || null) : null,
   motivoEstado: r.status_reason || null,
   // Campos extra disponibles en consultas admin (JOIN con affiliates)
@@ -871,11 +882,11 @@ const serializeReceta = (r) => ({
   medicamento: r.medicamento_nombre,
   presentacion: r.medicamento_presentacion,
   cantidad: r.medicamento_cantidad || 0,
-  fecha: toDateStr(r.fecha_emision || r.request_date),
+  fecha: toDisplayDate(r.fecha_emision || r.request_date),
   observaciones: r.description || '',
   estado: STATUS_REINTEGRO_MAP[r.status] || 'Recibido',
   estadoRaw: r.status,
-  fechaEstado: toDateStr(r.updated_at || r.created_at),
+  fechaEstado: toDisplayDate(r.updated_at || r.created_at),
   mensajeObservacion: r.status === 'Observada' ? (r.status_reason || null) : null,
   motivoEstado: r.status_reason || null,
   respuestaAfiliado: r.affiliate_response || null,
@@ -885,7 +896,7 @@ const serializeAutorizacion = (r) => ({
   id: r.id,
   nro: r.request_number,
   idIntegrante: String(r.affiliate_id),
-  fechaPrevista: toDateStr(r.fecha_prevista || r.request_date),
+  fechaPrevista: toDisplayDate(r.fecha_prevista || r.request_date),
   subtipo: r.subtipo_autorizacion || null,
   especialidad: r.especialidad,
   medico: r.medico_nombre,
@@ -894,7 +905,7 @@ const serializeAutorizacion = (r) => ({
   observaciones: r.description || '',
   estado: STATUS_REINTEGRO_MAP[r.status] || 'Recibido',
   estadoRaw: r.status,
-  fechaEstado: toDateStr(r.updated_at || r.created_at),
+  fechaEstado: toDisplayDate(r.updated_at || r.created_at),
   mensajeObservacion: r.status === 'Observada' ? (r.status_reason || null) : null,
   motivoEstado: r.status_reason || null,
   respuestaAfiliado: r.affiliate_response || null,
@@ -1254,5 +1265,9 @@ module.exports = {
   _private: {
     normalizeReintegroPayload,
     serializeAffiliate,
+    serializeReintegro,
+    serializeReceta,
+    serializeAutorizacion,
+    toDisplayDate,
   }
 };

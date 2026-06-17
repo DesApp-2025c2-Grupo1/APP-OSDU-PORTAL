@@ -1,10 +1,25 @@
 const Joi = require('joi');
 
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const dateOnly = () => Joi.string().pattern(DATE_ONLY_RE).custom((value, helpers) => {
+  const [yyyy, mm, dd] = value.split('-').map(Number);
+  const date = new Date(yyyy, mm - 1, dd);
+  if (
+    date.getFullYear() !== yyyy ||
+    date.getMonth() !== mm - 1 ||
+    date.getDate() !== dd
+  ) {
+    return helpers.error('date.format');
+  }
+  return value;
+}, 'validacion de fecha civil YYYY-MM-DD');
+
 const affiliateSchema = Joi.object({
   idPlan: Joi.number().integer().required(),
   nroDocumento: Joi.string().max(10).required(),
   tipoDocumento: Joi.string().valid('DNI', 'Pasaporte').required(),
-  fechaNacimiento: Joi.date().iso().required(),
+  fechaNacimiento: dateOnly().required(),
   nombre: Joi.string().max(100).required(),
   apellido: Joi.string().max(100).required(),
   email: Joi.string().email().required(),
@@ -19,7 +34,7 @@ const affiliateSchema = Joi.object({
     parentesco: Joi.string().required(),
     nroDocumento: Joi.string().required(),
     tipoDocumento: Joi.string().optional(),
-    fechaNacimiento: Joi.date().iso().optional(),
+    fechaNacimiento: dateOnly().optional(),
     nombre: Joi.string().optional(),
     apellido: Joi.string().optional(),
     email: Joi.string().email().optional(),
@@ -30,14 +45,14 @@ const affiliateSchema = Joi.object({
     codigoPostal: Joi.string().allow('').optional(),
     situaciones: Joi.array().items(Joi.object({
       id: Joi.number().integer().optional(),
-      fechaInicio: Joi.date().iso().optional(),
-      fechaFin: Joi.date().iso().allow(null).optional()
+      fechaInicio: dateOnly().optional(),
+      fechaFin: dateOnly().allow(null).optional()
     })).optional()
   })).optional(),
   situaciones: Joi.array().items(Joi.object({
     id: Joi.number().integer().optional(),
-    fechaInicio: Joi.date().iso().optional(),
-    fechaFin: Joi.date().iso().allow(null).optional()
+    fechaInicio: dateOnly().optional(),
+    fechaFin: dateOnly().allow(null).optional()
   })).optional()
 });
 
