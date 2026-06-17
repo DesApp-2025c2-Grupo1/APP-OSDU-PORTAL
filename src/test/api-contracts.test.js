@@ -73,6 +73,47 @@ describe('API contracts normalization', () => {
     });
   });
 
+  it('serializa fechas de trámites de afiliados en DD/MM/AAAA', () => {
+    const reintegro = affiliatesService._private.serializeReintegro({
+      id: 1,
+      request_number: 'REI-1',
+      affiliate_id: 2,
+      request_date: '2026-06-05',
+      updated_at: '2026-06-07T12:00:00.000Z',
+      created_at: '2026-06-05T12:00:00.000Z',
+      status: 'Pendiente',
+    });
+
+    const receta = affiliatesService._private.serializeReceta({
+      id: 2,
+      request_number: 'REC-1',
+      affiliate_id: 2,
+      request_date: '2026-06-06',
+      fecha_emision: '2026-06-08',
+      updated_at: '2026-06-09T12:00:00.000Z',
+      created_at: '2026-06-06T12:00:00.000Z',
+      status: 'Aprobada',
+    });
+
+    const autorizacion = affiliatesService._private.serializeAutorizacion({
+      id: 3,
+      request_number: 'AUT-1',
+      affiliate_id: 2,
+      request_date: '2026-06-10',
+      fecha_prevista: '2026-06-15',
+      updated_at: '2026-06-11T12:00:00.000Z',
+      created_at: '2026-06-10T12:00:00.000Z',
+      status: 'En análisis',
+    });
+
+    expect(reintegro.fechaPrestacion).toBe('05/06/2026');
+    expect(reintegro.fechaEstado).toBe('07/06/2026');
+    expect(receta.fecha).toBe('08/06/2026');
+    expect(receta.fechaEstado).toBe('09/06/2026');
+    expect(autorizacion.fechaPrevista).toBe('15/06/2026');
+    expect(autorizacion.fechaEstado).toBe('11/06/2026');
+  });
+
   it('expone rutas de documentos adjuntos en el contrato del afiliado', async () => {
     const payload = await affiliatesService._private.serializeAffiliate({
       id: 7,

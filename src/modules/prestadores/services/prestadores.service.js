@@ -29,6 +29,7 @@ const sendError = (res, error, fallbackMessage = 'Error interno del servidor') =
 const ESTADOS_SOLICITUD = new Set(['Pendiente', 'En análisis', 'Observada', 'Aprobada', 'Rechazada']);
 const ESTADOS_TURNO = new Set(['reservado', 'confirmado', 'atendido', 'cancelado', 'ausente']);
 const ESTADOS_TERMINALES_SOLICITUD = new Set(['Aprobada', 'Rechazada']);
+const TIPOS_SOLICITUD = new Set(['Reintegro', 'Autorizacion', 'Receta']);
 
 const formatDate = (value) => {
   const date = new Date(value);
@@ -419,6 +420,9 @@ const createRequest = async (req, res) => {
     if (!affiliateId) throw new HttpError(400, 'El afiliado es requerido');
     const affiliate = await ensureAffiliate(affiliateId);
     const tipo = requireText(req.body.tipo, 'tipo', 'El tipo de solicitud es requerido');
+    if (!TIPOS_SOLICITUD.has(tipo)) {
+      throw new HttpError(422, 'Tipo de solicitud inválido');
+    }
     const fecha = assertISODate(toISODate(req.body.fecha) || new Date().toISOString().slice(0, 10));
     const adjunto = req.body.adjunto || null;
     if (adjunto && !adjunto.nombre) throw new HttpError(422, 'El adjunto informado no es válido');
