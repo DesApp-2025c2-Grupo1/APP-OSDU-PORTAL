@@ -235,6 +235,9 @@ const create = async (req, res) => {
 
     const p = await db('prestadores').where('cuit', cuitCuil).first();
     if (!p) return res.status(404).json({ message: 'Prestador no encontrado' });
+    if ((p.estado || (p.activo ? 'activo' : 'baja')) !== 'activo') {
+      return res.status(422).json({ message: 'No se puede crear una agenda para un prestador dado de baja' });
+    }
 
     // Un PRESTADOR solo puede crear agendas para sí mismo
     if (req.user?.role === 'PRESTADOR') {

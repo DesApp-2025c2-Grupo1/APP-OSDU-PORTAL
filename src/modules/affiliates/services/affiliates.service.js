@@ -315,13 +315,12 @@ const createFamilyGroupMembers = async (holder, familyGroup, trx) => {
     const nameParts = splitFullName(member.nombreCompleto);
     const firstName = member.nombre || nameParts.firstName;
     const lastName = member.apellido || nameParts.lastName;
-    const email = member.email || `${member.nroDocumento}@familiares.local`;
-    const user = await authService.registerInternal(email, trx);
+    const email = holder.email;
     const baseCredential = String(holder.credencial_number || '').split('-')[0] || String(holder.id).padStart(7, '0');
 
     const [createdRaw] = await trx('afiliados')
       .insert({
-        usuario_id: user.id,
+        usuario_id: holder.user_id,
         nro_credencial: `${baseCredential}-${String(index).padStart(2, '0')}`,
         nro_documento: member.nroDocumento,
         tipo_documento: documentType,
@@ -524,18 +523,22 @@ const generateFamilyCredentialNumber = async (holderId, trx) => {
 };
 
 const createFamilyMember = async (req, res) => {
-  const holder = await affiliateRepository.getAffiliateByIdentifier(req.params.identifier);
-  if (!holder) return res.status(404).json({ message: 'El titular no existe' });
+  const found = await affiliateRepository.getAffiliateByIdentifier(req.params.identifier);
+  if (!found) return res.status(404).json({ message: 'El titular no existe' });
 
-  const holderId = holder.holder_affiliate_id || holder.id;
+  const holderId = found.holder_affiliate_id || found.id;
+  const holder = found.holder_affiliate_id
+    ? await affiliateRepository.getAffiliateByIdentifier(holderId)
+    : found;
+  if (!holder) return res.status(404).json({ message: 'El titular no existe' });
   const payload = req.body;
-  const email = Array.isArray(payload.emails) ? payload.emails[0]?.email : payload.email;
+  const email = holder.email;
   const phone = Array.isArray(payload.telefonos) ? payload.telefonos[0]?.telefono : payload.telefono;
 
   if (!payload.dni && !payload.nroDocumento && !payload.document_number) {
     return res.status(400).json({ message: 'El DNI del familiar es requerido' });
   }
-  if (!email) return res.status(400).json({ message: 'El email del familiar es requerido' });
+  if (!email) return res.status(400).json({ message: 'El titular no tiene email configurado' });
 
   const trx = await db.transaction();
   try {
@@ -547,10 +550,9 @@ const createFamilyMember = async (req, res) => {
       return res.status(409).json({ message: 'El afiliado ya existe' });
     }
 
-    const user = await authService.registerInternal(email, trx);
     const [insertedRaw] = await trx('afiliados')
       .insert({
-        usuario_id: user.id,
+        usuario_id: holder.user_id,
         nro_credencial: await generateFamilyCredentialNumber(holderId, trx),
         nro_documento: documentNumber,
         tipo_documento: documentType,
