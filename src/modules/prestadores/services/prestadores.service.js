@@ -28,6 +28,7 @@ const sendError = (res, error, fallbackMessage = 'Error interno del servidor') =
 
 const ESTADOS_SOLICITUD = new Set(['Pendiente', 'En análisis', 'Observada', 'Aprobada', 'Rechazada']);
 const ESTADOS_TURNO = new Set(['reservado', 'confirmado', 'atendido', 'cancelado', 'ausente']);
+const ESTADOS_TERMINALES_SOLICITUD = new Set(['Aprobada', 'Rechazada']);
 
 const formatDate = (value) => {
   const date = new Date(value);
@@ -44,8 +45,15 @@ const toISODate = (value) => {
   const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(value).trim());
   if (!match) return value;
 
-  const [, mm, dd, yyyy] = match;
+  const [, dd, mm, yyyy] = match;
   return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+};
+
+const assertValidRequestTransition = (currentStatus, nextStatus) => {
+  if (!currentStatus || currentStatus === nextStatus) return;
+  if (ESTADOS_TERMINALES_SOLICITUD.has(currentStatus)) {
+    throw new HttpError(409, `La solicitud ya fue ${currentStatus.toLowerCase()} y no admite nuevos cambios de estado`);
+  }
 };
 
 const initials = (name) => name
@@ -317,6 +325,9 @@ const updateRequestStatus = async (req, res) => {
     }
 
     const request = await db.transaction(async (trx) => {
+      const current = await prestadoresRepository.getRequestByIdForPrestador(id, prestadorId, trx);
+      if (!current) throw new HttpError(404, 'La solicitud no existe');
+      assertValidRequestTransition(current.status, estado);
       const updated = await prestadoresRepository.updateRequestStatus(id, prestadorId, estado, motivo, getUserId(req), trx);
       if (!updated) throw new HttpError(404, 'La solicitud no existe');
       await prestadoresRepository.createWorkflowAuditLog(trx, {
@@ -368,6 +379,9 @@ const makeUpdateAfiliateTramiteStatus = (tipo) => async (req, res) => {
     }
 
     const request = await db.transaction(async (trx) => {
+      const current = await prestadoresRepository.getAfiliateTramiteById(id, tipo, trx);
+      if (!current) throw new HttpError(404, `${tipo} no encontrada`);
+      assertValidRequestTransition(current.status, estado);
       const updated = await prestadoresRepository.updateAfiliateTramiteStatus(id, tipo, estado, motivo, getUserId(req), trx);
       if (!updated) throw new HttpError(404, `${tipo} no encontrada`);
       if (updated.affiliate_id) {

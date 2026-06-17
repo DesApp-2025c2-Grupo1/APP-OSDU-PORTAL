@@ -81,6 +81,7 @@ const getAffiliateByUserId = async (userId, trx = db) => {
         .join('planes', 'afiliados.plan_id', '=', 'planes.id')
         .select(affiliateColumns)
         .where('afiliados.usuario_id', userId)
+        .orderByRaw('afiliados.afiliado_titular_id IS NULL DESC')
         .first();
 }
 
