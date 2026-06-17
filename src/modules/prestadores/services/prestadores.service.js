@@ -31,6 +31,11 @@ const ESTADOS_TURNO = new Set(['reservado', 'confirmado', 'atendido', 'cancelado
 const ESTADOS_TERMINALES_SOLICITUD = new Set(['Aprobada', 'Rechazada']);
 const TIPOS_SOLICITUD = new Set(['Reintegro', 'Autorizacion', 'Receta']);
 
+const normalizeRequestType = (type) => {
+  if (type === 'Solicitud') return 'Autorizacion';
+  return type;
+};
+
 const formatDate = (value) => {
   const date = new Date(value);
   const dd = String(date.getUTCDate()).padStart(2, '0');
@@ -90,7 +95,7 @@ const serializeRequest = (request) => ({
   nro: request.request_number,
   afiliadoId: request.affiliate_id,
   afiliado: request.affiliate_name,
-  tipo: request.type,
+  tipo: normalizeRequestType(request.type),
   estado: request.status,
   motivoEstado: request.status_reason,
   fecha: formatDate(request.request_date),
@@ -106,7 +111,7 @@ const serializeRequest = (request) => ({
 const serializeActivity = (request) => ({
   id: request.request_number,
   texto: request.affiliate_name,
-  tipo: request.type,
+  tipo: normalizeRequestType(request.type),
   tiempo: formatDate(request.request_date),
   color: statusColor(request.status),
 });
