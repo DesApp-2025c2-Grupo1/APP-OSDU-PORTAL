@@ -1268,6 +1268,7 @@ module.exports = {
     serializeReintegro,
     serializeReceta,
     serializeAutorizacion,
+    toDateStr,
     toDisplayDate,
   }
 };
