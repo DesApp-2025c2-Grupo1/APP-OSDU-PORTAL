@@ -2,7 +2,7 @@ const affiliateRepository = require('../repository/affiliate.repository');
 const authService = require('../../auth/services/auth.service');
 const affiliateModel = require('../model/affiliate.model');
 const { notify } = require('../../mail/notification.service');
-const { affiliateSchema, normalizeAffiliatePayload } = require('../utils/validation');
+const { affiliateSchema, familyMemberSchema, normalizeAffiliatePayload, normalizeFamilyMember } = require('../utils/validation');
 const { HttpError } = require('../../../utils/api-error');
 const db = require('../../../database/db');
 const { findAgendaForAppointment, hasOverlappingAppointment } = require('../../prestadores/repository/prestadores.repository');
@@ -185,6 +185,9 @@ const createAffiliate = async (req, res) => {
     if (error.message === 'El usuario ya existe') {
       return res.status(400).json({ message: 'Ya existe un usuario con ese email' });
     }
+    if (error.status) {
+      return res.status(error.status).json({ message: error.message });
+    }
     return res.status(500).json({ message: 'Error interno al procesar la solicitud' });
   }
 };
@@ -283,8 +286,18 @@ const splitFullName = (fullName = '') => {
   const parts = String(fullName).trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
   return {
     firstName: parts[0] || '',
-    lastName: parts.slice(1).join(' ') || parts[0] || ''
+    lastName: parts.length > 1 ? parts.slice(1).join(' ') : ''
   };
+};
+
+const assertFamilyMemberName = (member) => {
+  const nameParts = splitFullName(member.nombreCompleto);
+  const firstName = String(member.nombre || member.first_name || nameParts.firstName || '').trim();
+  const lastName = String(member.apellido || member.last_name || nameParts.lastName || '').trim();
+  if (!firstName || !lastName) {
+    throw new HttpError(400, 'Cada integrante del grupo familiar debe tener nombre y apellido.');
+  }
+  return { firstName, lastName };
 };
 
 const createAffiliateSituations = async (affiliateId, situations, trx) => {
@@ -312,9 +325,7 @@ const createFamilyGroupMembers = async (holder, familyGroup, trx) => {
     const existing = await affiliateRepository.existsAffiliate(member.nroDocumento, documentType, trx);
     if (existing) throw new HttpError(409, `Ya existe un afiliado familiar con documento ${member.nroDocumento}`);
 
-    const nameParts = splitFullName(member.nombreCompleto);
-    const firstName = member.nombre || nameParts.firstName;
-    const lastName = member.apellido || nameParts.lastName;
+    const { firstName, lastName } = assertFamilyMemberName(member);
     const email = holder.email;
     const baseCredential = String(holder.credencial_number || '').split('-')[0] || String(holder.id).padStart(7, '0');
 
@@ -542,19 +553,20 @@ const createFamilyMember = async (req, res) => {
     ? await affiliateRepository.getAffiliateByIdentifier(holderId)
     : found;
   if (!holder) return res.status(404).json({ message: 'El titular no existe' });
-  const payload = req.body;
+  const payload = normalizeFamilyMember(req.body);
   const email = holder.email;
   const phone = Array.isArray(payload.telefonos) ? payload.telefonos[0]?.telefono : payload.telefono;
 
-  if (!payload.dni && !payload.nroDocumento && !payload.document_number) {
-    return res.status(400).json({ message: 'El DNI del familiar es requerido' });
+  const { error, value } = familyMemberSchema.validate(payload, { abortEarly: false });
+  if (error) {
+    return res.status(400).json({ message: 'Datos inválidos', details: error.details });
   }
   if (!email) return res.status(400).json({ message: 'El titular no tiene email configurado' });
 
   const trx = await db.transaction();
   try {
-    const documentNumber = payload.dni || payload.nroDocumento || payload.document_number;
-    const documentType = payload.tipoDocumento || payload.document_type || 'DNI';
+    const documentNumber = value.nroDocumento;
+    const documentType = value.tipoDocumento;
     const existing = await affiliateRepository.existsAffiliate(documentNumber, documentType, trx);
     if (existing) {
       await trx.rollback();
@@ -567,19 +579,19 @@ const createFamilyMember = async (req, res) => {
         nro_credencial: await generateFamilyCredentialNumber(holderId, trx),
         nro_documento: documentNumber,
         tipo_documento: documentType,
-        fecha_nacimiento: payload.fecha_nacimiento || payload.fechaNacimiento || payload.birth_date,
-        nombre: payload.nombre || payload.first_name,
-        apellido: payload.apellido || payload.last_name,
+        fecha_nacimiento: value.fechaNacimiento,
+        nombre: value.nombre,
+        apellido: value.apellido,
         telefono: phone || holder.phone || '',
         email,
-        direccion: payload.direccion || payload.address || holder.address || '',
-        localidad: payload.localidad || payload.city || holder.city || '',
-        provincia: payload.provincia || payload.province || holder.province || '',
-        codigo_postal: payload.postal_code || holder.postal_code || '',
-        pais: payload.country || holder.country || 'Argentina',
+        direccion: value.direccion || holder.address || '',
+        localidad: value.localidad || holder.city || '',
+        provincia: value.provincia || holder.province || '',
+        codigo_postal: value.codigoPostal || holder.postal_code || '',
+        pais: payload.pais || payload.country || holder.country || 'Argentina',
         plan_id: payload.plan || payload.planId || holder.plan_id,
         afiliado_titular_id: holderId,
-        parentesco: payload.parentesco || payload.relationship || 'Familiar a cargo',
+        parentesco: value.parentesco || 'Familiar a cargo',
         activo: holder.status
       })
       .returning('*');
@@ -1262,13 +1274,15 @@ module.exports = {
   responderAutorizacionObservacion,
   adminGetReintegros,
   adminUpdateReintegroStatus,
-  _private: {
-    normalizeReintegroPayload,
-    serializeAffiliate,
-    serializeReintegro,
-    serializeReceta,
-    serializeAutorizacion,
-    toDateStr,
-    toDisplayDate,
-  }
+	  _private: {
+	    normalizeReintegroPayload,
+	    serializeAffiliate,
+	    serializeReintegro,
+	    serializeReceta,
+	    serializeAutorizacion,
+	    splitFullName,
+	    assertFamilyMemberName,
+	    toDateStr,
+	    toDisplayDate,
+	  }
 };
