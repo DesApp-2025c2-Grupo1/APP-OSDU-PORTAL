@@ -138,9 +138,16 @@ const createAffiliate = async (req, res) => {
   const trx = await db.transaction();
 
   try {
-    if (await existsAffiliate(affiliate.nro_documento, affiliate.tipo_documento, trx)) {
+    const documentError = await checkDocumentAvailability(affiliate.nro_documento, affiliate.tipo_documento, 'nroDocumento', trx);
+    if (documentError) {
       await trx.rollback();
-      return res.status(400).json({ message: 'El afiliado ya existe' });
+      return res.status(409).json({ message: documentError.message, field: documentError.field, errors: [documentError] });
+    }
+
+    const emailError = await checkEmailAvailability(affiliate.email, trx);
+    if (emailError) {
+      await trx.rollback();
+      return res.status(409).json({ message: emailError.message, field: emailError.field, errors: [emailError] });
     }
 
     const credencialNumber = await generateCredencialNumber(trx);
@@ -183,7 +190,11 @@ const createAffiliate = async (req, res) => {
     await trx.rollback();
     console.error('[AFFILIATES] Error al crear afiliado:', error.message);
     if (error.message === 'El usuario ya existe') {
-      return res.status(400).json({ message: 'Ya existe un usuario con ese email' });
+      return res.status(409).json({
+        message: duplicateFieldMessages.email,
+        field: 'email',
+        errors: [buildDuplicateError('email', duplicateFieldMessages.email)],
+      });
     }
     if (error.status) {
       return res.status(error.status).json({ message: error.message });
@@ -280,6 +291,122 @@ const deactivateAffiliate = async (req, res) => {
 
 const existsAffiliate = async (document_number, document_type, trx) => {
   return affiliateRepository.existsAffiliate(document_number, document_type, trx);
+};
+
+const duplicateFieldMessages = {
+  dni: 'El DNI ingresado ya existe en el sistema.',
+  documento: 'El documento ingresado ya existe en el sistema.',
+  email: 'El correo electrónico ingresado ya existe en el sistema.',
+};
+
+const buildDuplicateError = (field, message) => ({
+  field,
+  message,
+});
+
+const checkDocumentAvailability = async (nroDocumento, tipoDocumento = 'DNI', field = 'nroDocumento', trx = db) => {
+  const documentNumber = String(nroDocumento || '').trim();
+  const documentType = tipoDocumento || 'DNI';
+  if (!documentNumber) return null;
+
+  const existing = await affiliateRepository.existsAffiliate(documentNumber, documentType, trx);
+  if (!existing) return null;
+
+  return buildDuplicateError(
+    field,
+    documentType === 'DNI' ? duplicateFieldMessages.dni : duplicateFieldMessages.documento
+  );
+};
+
+const checkEmailAvailability = async (email, trx = db) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const [existingUser, existingAffiliate] = await Promise.all([
+    trx('usuarios').whereRaw('LOWER(email) = ?', [normalizedEmail]).first(),
+    affiliateRepository.existsAffiliateEmail(normalizedEmail, trx),
+  ]);
+
+  if (!existingUser && !existingAffiliate) return null;
+  return buildDuplicateError('email', duplicateFieldMessages.email);
+};
+
+const parseRegistrationValidationBody = (body = {}) => {
+  const parsedBody = { ...body };
+  if (parsedBody.grupoFamiliar && typeof parsedBody.grupoFamiliar === 'string') {
+    try {
+      parsedBody.grupoFamiliar = JSON.parse(parsedBody.grupoFamiliar);
+    } catch (e) {
+      parsedBody.grupoFamiliar = [];
+    }
+  }
+  if (parsedBody.family_group && typeof parsedBody.family_group === 'string') {
+    try {
+      parsedBody.family_group = JSON.parse(parsedBody.family_group);
+    } catch (e) {
+      parsedBody.family_group = [];
+    }
+  }
+  return parsedBody;
+};
+
+const validateAffiliateRegistration = async (req, res) => {
+  try {
+    const normalizedBody = normalizeAffiliatePayload(parseRegistrationValidationBody(req.body));
+    const step = String(req.body.step || 'all');
+    const errors = [];
+
+    if (step === '1' || step === 'all') {
+      const documentError = await checkDocumentAvailability(
+        normalizedBody.nroDocumento,
+        normalizedBody.tipoDocumento || 'DNI',
+        'nroDocumento'
+      );
+      if (documentError) errors.push(documentError);
+
+      const emailError = await checkEmailAvailability(normalizedBody.email);
+      if (emailError) errors.push(emailError);
+    }
+
+    if (step === '2' || step === 'all') {
+      const seenDocuments = new Map();
+      const holderKey = `${normalizedBody.tipoDocumento || 'DNI'}:${String(normalizedBody.nroDocumento || '').trim()}`;
+
+      for (const [index, member] of (normalizedBody.grupoFamiliar || []).entries()) {
+        const memberDocument = String(member.nroDocumento || '').trim();
+        if (!memberDocument) continue;
+
+        const memberType = member.tipoDocumento || 'DNI';
+        const memberKey = `${memberType}:${memberDocument}`;
+        const field = `grupoFamiliar.${index}.nroDocumento`;
+
+        if (memberKey === holderKey) {
+          errors.push(buildDuplicateError(field, 'El DNI del familiar no puede ser igual al del titular.'));
+          continue;
+        }
+
+        if (seenDocuments.has(memberKey)) {
+          errors.push(buildDuplicateError(field, 'Este DNI ya está cargado en el grupo familiar.'));
+          continue;
+        }
+
+        seenDocuments.set(memberKey, index);
+        const documentError = await checkDocumentAvailability(memberDocument, memberType, field);
+        if (documentError) errors.push(documentError);
+      }
+    }
+
+    return res.status(errors.length ? 409 : 200).json({
+      valid: errors.length === 0,
+      errors,
+    });
+  } catch (error) {
+    console.error('[AFFILIATES] Error al validar solicitud:', error.message);
+    return res.status(500).json({
+      valid: false,
+      errors: [{ field: 'general', message: 'No se pudo validar la solicitud en este momento.' }],
+    });
+  }
 };
 
 const splitFullName = (fullName = '') => {
@@ -860,6 +987,60 @@ const STATUS_REINTEGRO_MAP = {
   'Rechazada':    'Rechazado',
 };
 
+const STATUS_RECETA_MAP = {
+  'Pendiente': 'Pendiente',
+  'En análisis': 'En revisión',
+  'Observada': 'Información adicional requerida',
+  'Aprobada': 'Aprobada',
+  'Rechazada': 'Rechazada',
+};
+
+const RECETA_SECTIONS = {
+  motivoSolicitud: 'Motivo de la solicitud',
+  descripcionSintomas: 'Descripción de síntomas o situación médica',
+  medicamentoSolicitado: 'Medicamento solicitado como referencia',
+  observaciones: 'Observaciones adicionales',
+};
+
+const todayISODate = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
+
+const buildRecetaDescription = ({ motivoSolicitud, descripcionSintomas, medicamentoSolicitado, observaciones }) =>
+  [
+    `${RECETA_SECTIONS.motivoSolicitud}:\n${motivoSolicitud}`,
+    `${RECETA_SECTIONS.descripcionSintomas}:\n${descripcionSintomas}`,
+    `${RECETA_SECTIONS.medicamentoSolicitado}:\n${medicamentoSolicitado || 'No informado'}`,
+    `${RECETA_SECTIONS.observaciones}:\n${observaciones || 'Sin observaciones'}`,
+  ].join('\n\n');
+
+const extractRecetaSection = (description, sectionLabel) => {
+  const text = String(description || '');
+  const escapedLabel = sectionLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const sectionLabels = Object.values(RECETA_SECTIONS)
+    .filter((label) => label !== sectionLabel)
+    .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  const match = text.match(new RegExp(`${escapedLabel}:\\s*([\\s\\S]*?)(?=\\n\\n(?:${sectionLabels}):|$)`, 'i'));
+  const value = match ? match[1].trim() : '';
+  return value && value !== 'No informado' && value !== 'Sin observaciones' ? value : '';
+};
+
+const normalizeRecetaPayload = (body = {}) => {
+  const motivoSolicitud = String(body.motivoSolicitud || body.motivo || '').trim();
+  const descripcionSintomas = String(body.descripcionSintomas || body.descripcion || body.situacionMedica || '').trim();
+  const medicamentoSolicitado = String(body.medicamentoSolicitado || body.medicamento || '').trim();
+  const observaciones = String(body.observaciones || '').trim();
+  return { motivoSolicitud, descripcionSintomas, medicamentoSolicitado, observaciones };
+};
+
 const serializeReintegro = (r) => ({
   id: r.id,
   nro: r.request_number,
@@ -887,22 +1068,35 @@ const serializeReintegro = (r) => ({
   credencial: r.credencial_number || null,
 });
 
-const serializeReceta = (r) => ({
-  id: r.id,
-  nro: r.request_number,
-  idIntegrante: String(r.affiliate_id),
-  medicamento: r.medicamento_nombre,
-  presentacion: r.medicamento_presentacion,
-  cantidad: r.medicamento_cantidad || 0,
-  fecha: toDisplayDate(r.fecha_emision || r.request_date),
-  observaciones: r.description || '',
-  estado: STATUS_REINTEGRO_MAP[r.status] || 'Recibido',
-  estadoRaw: r.status,
-  fechaEstado: toDisplayDate(r.updated_at || r.created_at),
-  mensajeObservacion: r.status === 'Observada' ? (r.status_reason || null) : null,
-  motivoEstado: r.status_reason || null,
-  respuestaAfiliado: r.affiliate_response || null,
-});
+const serializeReceta = (r) => {
+  const motivoSolicitud = extractRecetaSection(r.description, RECETA_SECTIONS.motivoSolicitud);
+  const descripcionSintomas = extractRecetaSection(r.description, RECETA_SECTIONS.descripcionSintomas);
+  const medicamentoSolicitado = extractRecetaSection(r.description, RECETA_SECTIONS.medicamentoSolicitado);
+  const observaciones = extractRecetaSection(r.description, RECETA_SECTIONS.observaciones);
+  const recetaEmitida = r.status === 'Aprobada' && Boolean(r.medicamento_nombre);
+
+  return {
+    id: r.id,
+    nro: r.request_number,
+    idIntegrante: String(r.affiliate_id),
+    motivoSolicitud: motivoSolicitud || r.description || '',
+    descripcionSintomas,
+    medicamentoSolicitado: medicamentoSolicitado || null,
+    medicamento: r.medicamento_nombre || null,
+    presentacion: r.medicamento_presentacion || null,
+    cantidad: r.medicamento_cantidad || null,
+    fecha: toDisplayDate(r.request_date || r.fecha_emision),
+    fechaEmision: r.fecha_emision ? toDisplayDate(r.fecha_emision) : null,
+    observaciones: observaciones || '',
+    estado: STATUS_RECETA_MAP[r.status] || 'Pendiente',
+    estadoRaw: r.status,
+    fechaEstado: toDisplayDate(r.updated_at || r.created_at),
+    mensajeObservacion: r.status === 'Observada' ? (r.status_reason || null) : null,
+    motivoEstado: r.status_reason || null,
+    respuestaAfiliado: r.affiliate_response || null,
+    recetaEmitida,
+  };
+};
 
 const serializeAutorizacion = (r) => ({
   id: r.id,
@@ -1045,24 +1239,14 @@ const submitReceta = async (req, res) => {
     const affiliate = await resolveAffiliate(req);
     if (!affiliate) return res.status(404).json({ message: 'Afiliado no encontrado o no pertenece al grupo familiar' });
 
-    const medicamento = String(req.body.medicamento || req.body.medicamentoNombre || '').trim();
-    const presentacion = String(req.body.presentacion || '').trim();
-    const fechaEmision = req.body.fecha || req.body.fechaEmision;
-    const cantidad = Number(req.body.cantidad);
-
-    if (!medicamento) return res.status(400).json({ message: 'El medicamento es requerido' });
-    if (!presentacion) return res.status(400).json({ message: 'La presentación es requerida' });
-    if (!fechaEmision) return res.status(400).json({ message: 'La fecha de emisión es requerida' });
-    assertISODate(fechaEmision);
-    if (!Number.isInteger(cantidad) || cantidad <= 0) return res.status(400).json({ message: 'La cantidad debe ser mayor a 0' });
+    const recetaPayload = normalizeRecetaPayload(req.body);
+    if (!recetaPayload.motivoSolicitud) return res.status(400).json({ message: 'El motivo de la solicitud es requerido' });
+    if (!recetaPayload.descripcionSintomas) return res.status(400).json({ message: 'La descripción de síntomas o situación médica es requerida' });
 
     const receta = await affiliateRepository.createReceta(affiliate.id, {
       affiliateName: `${affiliate.first_name} ${affiliate.last_name}`.trim(),
-      medicamento,
-      presentacion,
-      cantidad,
-      fechaEmision,
-      observaciones: req.body.observaciones || null,
+      fechaSolicitud: todayISODate(),
+      descripcionSolicitud: buildRecetaDescription(recetaPayload),
     });
 
     return res.status(201).json(serializeReceta(receta));
@@ -1244,6 +1428,7 @@ const getMyProfile = async (req, res) => {
 
 module.exports = {
   createAffiliate,
+  validateAffiliateRegistration,
   getAffiliatesList,
   getAffiliatesByStatus: getAffiliatesList,
   getAffiliateById,
@@ -1276,6 +1461,7 @@ module.exports = {
   adminUpdateReintegroStatus,
 	  _private: {
 	    normalizeReintegroPayload,
+	    normalizeRecetaPayload,
 	    serializeAffiliate,
 	    serializeReintegro,
 	    serializeReceta,

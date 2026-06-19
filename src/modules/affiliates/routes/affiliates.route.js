@@ -179,6 +179,7 @@ const affiliateDocumentUpload = upload.fields([
   { name: 'payslip_document', maxCount: 1 }
 ]);
 
+router.post('/register/validate', affiliatesService.validateAffiliateRegistration);
 router.post('/register', affiliateDocumentUpload, affiliatesService.createAffiliate);
 router.post('/', authorize('ADMIN'), affiliateDocumentUpload, affiliatesService.createAffiliate);
 

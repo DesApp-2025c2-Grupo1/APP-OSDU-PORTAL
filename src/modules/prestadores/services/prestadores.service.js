@@ -100,6 +100,10 @@ const serializeRequest = (request) => ({
   motivoEstado: request.status_reason,
   fecha: formatDate(request.request_date),
   descripcion: request.description,
+  medicamento: request.medicamento_nombre || null,
+  presentacion: request.medicamento_presentacion || null,
+  cantidad: request.medicamento_cantidad || null,
+  fechaEmision: request.fecha_emision ? formatDate(request.fecha_emision) : null,
   adjunto: request.attachment_name ? {
     nombre: request.attachment_name,
     tipo: request.attachment_type,
@@ -296,7 +300,13 @@ const getDashboardStats = async (req, res) => {
     const stats = await prestadoresRepository.getDashboardStats(prestadorId);
     return res.status(200).json({
       pendientes: stats.pendientes,
+      enAnalisis: stats.enAnalisis,
       observadas: stats.observadas,
+      aprobadas: stats.aprobadas,
+      rechazadas: stats.rechazadas,
+      resueltas: stats.resueltas,
+      total: stats.total,
+      evolucionSolicitudes: stats.evolucionSolicitudes,
       actividadReciente: stats.actividadReciente.map(serializeActivity),
     });
   } catch (error) {
@@ -383,12 +393,26 @@ const makeUpdateAfiliateTramiteStatus = (tipo) => async (req, res) => {
     if (['Aprobada', 'Rechazada', 'Observada'].includes(estado) && !motivo) {
       throw new HttpError(400, 'El motivo es requerido para cambiar a ese estado');
     }
+    const extraFields = {};
+    if (tipo === 'Receta' && estado === 'Aprobada') {
+      const medicamento = String(req.body.medicamento || '').trim();
+      const presentacion = String(req.body.presentacion || '').trim();
+      const cantidad = Number(req.body.cantidad);
+      const fechaEmision = assertISODate(toISODate(req.body.fechaEmision) || new Date().toISOString().slice(0, 10));
+
+      if (!medicamento) throw new HttpError(400, 'El medicamento indicado por el prestador es requerido para aprobar la receta');
+      if (!Number.isInteger(cantidad) || cantidad <= 0) throw new HttpError(400, 'La cantidad indicada debe ser mayor a 0');
+      extraFields.medicamento = medicamento;
+      extraFields.presentacion = presentacion || null;
+      extraFields.cantidad = cantidad;
+      extraFields.fechaEmision = fechaEmision;
+    }
 
     const request = await db.transaction(async (trx) => {
       const current = await prestadoresRepository.getAfiliateTramiteById(id, tipo, trx);
       if (!current) throw new HttpError(404, `${tipo} no encontrada`);
       assertValidRequestTransition(current.status, estado);
-      const updated = await prestadoresRepository.updateAfiliateTramiteStatus(id, tipo, estado, motivo, getUserId(req), trx);
+      const updated = await prestadoresRepository.updateAfiliateTramiteStatus(id, tipo, estado, motivo, getUserId(req), extraFields, trx);
       if (!updated) throw new HttpError(404, `${tipo} no encontrada`);
       if (updated.affiliate_id) {
         const affiliate = await prestadoresRepository.getAffiliateById(updated.affiliate_id);

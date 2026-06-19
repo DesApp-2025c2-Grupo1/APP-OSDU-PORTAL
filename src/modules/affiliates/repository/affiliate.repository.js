@@ -11,6 +11,14 @@ const existsAffiliate = async (document_number, document_type, trx = db) => {
     return trx('afiliados').where({ nro_documento: document_number, tipo_documento: document_type }).first();
 }
 
+const existsAffiliateEmail = async (email, trx = db) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) return null;
+    return trx('afiliados')
+        .whereRaw('LOWER(email) = ?', [normalizedEmail])
+        .first();
+}
+
 const affiliateColumns = [
     'afiliados.id',
     'afiliados.usuario_id as user_id',
@@ -343,12 +351,12 @@ const createReceta = async (affiliateId, data, trx = db) => {
             afiliado_nombre: data.affiliateName,
             tipo: 'Receta',
             estado: 'Pendiente',
-            fecha_solicitud: data.fechaEmision,
-            descripcion: data.observaciones || null,
-            medicamento_nombre: data.medicamento,
-            medicamento_presentacion: data.presentacion,
-            medicamento_cantidad: data.cantidad,
-            fecha_emision: data.fechaEmision,
+            fecha_solicitud: data.fechaSolicitud,
+            descripcion: data.descripcionSolicitud || null,
+            medicamento_nombre: null,
+            medicamento_presentacion: null,
+            medicamento_cantidad: null,
+            fecha_emision: null,
         })
         .returning('*');
     return affiliateRequestQuery(affiliateId, 'Receta', trx).where('prestador_requests.id', req.id).first();
@@ -460,6 +468,7 @@ const updateReintegroStatus = async (id, { status, motivo, userId }, trx = db) =
 module.exports = {
     createAffiliate,
     existsAffiliate,
+    existsAffiliateEmail,
     getAffiliateById,
     getAffiliateByIdentifier,
     getAffiliatesByStatus,

@@ -136,16 +136,94 @@ const getDefaultPrestador = async (trx = db) => {
   return trx('prestadores').select(prestadorColumns).orderBy('id').first();
 };
 
+const REQUEST_EVOLUTION_STATUS_KEYS = {
+  'Pendiente': 'pendientes',
+  'En análisis': 'analisis',
+  'Observada': 'observadas',
+  'Aprobada': 'resueltas',
+  'Rechazada': 'resueltas',
+};
+
+const createEvolutionBucket = (label) => ({
+  label,
+  pendientes: 0,
+  analisis: 0,
+  observadas: 0,
+  resueltas: 0,
+});
+
+const toDateKey = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const addDaysUTC = (date, amount) => {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + amount);
+  return next;
+};
+
+const getWeekdayLabel = (date) => (
+  ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][date.getUTCDay()]
+);
+
+const buildRequestsEvolution = (requests, now = new Date()) => {
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dailyDates = Array.from({ length: 7 }, (_, index) => addDaysUTC(today, index - 6));
+  const daily = dailyDates.map((date) => createEvolutionBucket(getWeekdayLabel(date)));
+  const dailyIndex = new Map(dailyDates.map((date, index) => [toDateKey(date), index]));
+
+  const weekly = Array.from({ length: 4 }, (_, index) => createEvolutionBucket(`Sem ${index + 1}`));
+  const oldestWeeklyDate = addDaysUTC(today, -27);
+
+  requests.forEach((request) => {
+    const statusKey = REQUEST_EVOLUTION_STATUS_KEYS[request.status];
+    if (!statusKey) return;
+
+    const dateKey = toDateKey(request.request_date);
+    if (!dateKey) return;
+    const requestDate = new Date(`${dateKey}T00:00:00.000Z`);
+
+    const dayIndex = dailyIndex.get(dateKey);
+    if (dayIndex !== undefined) daily[dayIndex][statusKey] += 1;
+
+    if (requestDate >= oldestWeeklyDate && requestDate <= today) {
+      const diffDays = Math.floor((requestDate.getTime() - oldestWeeklyDate.getTime()) / 86400000);
+      const weekIndex = Math.min(3, Math.max(0, Math.floor(diffDays / 7)));
+      weekly[weekIndex][statusKey] += 1;
+    }
+  });
+
+  return { diaria: daily, semanal: weekly };
+};
+
 const getDashboardStats = async (prestadorId, trx = db) => {
   const requests = await trx('prestador_requests')
     .select(requestColumns)
-    .where({ prestador_id: prestadorId })
+    .where(function () {
+      this.where({ prestador_id: prestadorId })
+        .orWhere(function () {
+          this.whereNull('prestador_id').whereIn('tipo', ['Autorizacion', 'Receta']);
+        });
+    })
     .orderBy('fecha_solicitud', 'desc')
     .orderBy('id', 'desc');
 
   return {
     pendientes: requests.filter((item) => item.status === 'Pendiente').length,
+    enAnalisis: requests.filter((item) => item.status === 'En análisis').length,
     observadas: requests.filter((item) => item.status === 'Observada').length,
+    aprobadas: requests.filter((item) => item.status === 'Aprobada').length,
+    rechazadas: requests.filter((item) => item.status === 'Rechazada').length,
+    resueltas: requests.filter((item) => ['Aprobada', 'Rechazada'].includes(item.status)).length,
+    total: requests.length,
+    evolucionSolicitudes: buildRequestsEvolution(requests),
     actividadReciente: requests.slice(0, 5),
   };
 };
@@ -180,18 +258,27 @@ const getAfiliateTramiteById = async (id, tipo, trx = db) => {
     .first();
 };
 
-const updateAfiliateTramiteStatus = async (id, tipo, status, reason, userId, trx = db) => {
+const updateAfiliateTramiteStatus = async (id, tipo, status, reason, userId, extraFields = {}, trx = db) => {
+  const updateData = {
+    estado: status,
+    motivo_estado: reason || null,
+    resuelto_por_usuario_id: ['Aprobada', 'Rechazada'].includes(status) ? userId : null,
+    resuelto_en: ['Aprobada', 'Rechazada'].includes(status) ? trx.fn.now() : null,
+    actualizado_en: trx.fn.now(),
+  };
+
+  if (tipo === 'Receta' && status === 'Aprobada') {
+    updateData.medicamento_nombre = extraFields.medicamento || null;
+    updateData.medicamento_presentacion = extraFields.presentacion || null;
+    updateData.medicamento_cantidad = extraFields.cantidad || null;
+    updateData.fecha_emision = extraFields.fechaEmision || null;
+  }
+
   await trx('prestador_requests')
     .where({ id })
     .whereNull('prestador_id')
     .where({ tipo })
-    .update({
-      estado: status,
-      motivo_estado: reason || null,
-      resuelto_por_usuario_id: ['Aprobada', 'Rechazada'].includes(status) ? userId : null,
-      resuelto_en: ['Aprobada', 'Rechazada'].includes(status) ? trx.fn.now() : null,
-      actualizado_en: trx.fn.now(),
-    });
+    .update(updateData);
   return getAfiliateTramiteById(id, tipo, trx);
 };
 
