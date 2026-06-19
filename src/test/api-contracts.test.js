@@ -73,6 +73,22 @@ describe('API contracts normalization', () => {
     });
   });
 
+  it('normaliza la solicitud de receta al contrato clínico del afiliado', () => {
+    const payload = affiliatesService._private.normalizeRecetaPayload({
+      motivo: 'Renovacion de tratamiento',
+      descripcion: 'Dolor persistente informado al medico',
+      medicamento: 'Ibuprofeno',
+      observaciones: 'Turno de control solicitado',
+    });
+
+    expect(payload).toMatchObject({
+      motivoSolicitud: 'Renovacion de tratamiento',
+      descripcionSintomas: 'Dolor persistente informado al medico',
+      medicamentoSolicitado: 'Ibuprofeno',
+      observaciones: 'Turno de control solicitado',
+    });
+  });
+
   it('serializa fechas de trámites de afiliados en DD/MM/AAAA', () => {
     const reintegro = affiliatesService._private.serializeReintegro({
       id: 1,
@@ -108,10 +124,40 @@ describe('API contracts normalization', () => {
 
     expect(reintegro.fechaPrestacion).toBe('05/06/2026');
     expect(reintegro.fechaEstado).toBe('07/06/2026');
-    expect(receta.fecha).toBe('08/06/2026');
+    expect(receta.fecha).toBe('06/06/2026');
+    expect(receta.fechaEmision).toBe('08/06/2026');
     expect(receta.fechaEstado).toBe('09/06/2026');
     expect(autorizacion.fechaPrevista).toBe('15/06/2026');
     expect(autorizacion.fechaEstado).toBe('11/06/2026');
+  });
+
+  it('serializa recetas con estados y datos de solicitud claros para el afiliado', () => {
+    const receta = affiliatesService._private.serializeReceta({
+      id: 2,
+      request_number: 'REC-2',
+      affiliate_id: 2,
+      request_date: '2026-06-06',
+      updated_at: '2026-06-09T12:00:00.000Z',
+      created_at: '2026-06-06T12:00:00.000Z',
+      status: 'Observada',
+      status_reason: 'Adjuntar informe del medico tratante',
+      description: [
+        'Motivo de la solicitud:\nRenovacion de tratamiento',
+        'Descripción de síntomas o situación médica:\nDolor persistente',
+        'Medicamento solicitado como referencia:\nIbuprofeno',
+        'Observaciones adicionales:\nSin observaciones',
+      ].join('\n\n'),
+    });
+
+    expect(receta).toMatchObject({
+      motivoSolicitud: 'Renovacion de tratamiento',
+      descripcionSintomas: 'Dolor persistente',
+      medicamentoSolicitado: 'Ibuprofeno',
+      observaciones: '',
+      estado: 'Información adicional requerida',
+      mensajeObservacion: 'Adjuntar informe del medico tratante',
+      recetaEmitida: false,
+    });
   });
 
   it('expone rutas de documentos adjuntos en el contrato del afiliado', async () => {

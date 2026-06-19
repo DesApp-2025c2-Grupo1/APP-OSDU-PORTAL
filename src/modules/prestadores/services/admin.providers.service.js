@@ -483,6 +483,7 @@ const buildFilteredQuery = (queryParams) => {
     cuitCuil,
     especialidad,
     tipoPrestador,
+    provincia,
     localidad,
     estado,
     centroMedicoId
@@ -490,7 +491,7 @@ const buildFilteredQuery = (queryParams) => {
 
   const query = db('prestadores').select('prestadores.*').distinct('prestadores.id');
   const needsSpecialties = especialidad || search;
-  const needsPlaces = localidad || search;
+  const needsPlaces = provincia || localidad || search;
 
   if (needsSpecialties) {
     query.leftJoin('prestador_especialidades', 'prestadores.id', 'prestador_especialidades.prestador_id')
@@ -508,6 +509,7 @@ const buildFilteredQuery = (queryParams) => {
   if (cuitCuil) query.where('prestadores.cuit', 'like', `%${normalizeCuit(cuitCuil)}%`);
   if (tipoPrestador && tipoPrestador !== 'todos') query.where('prestadores.tipo_prestador', tipoPrestador);
   if (estado && estado !== 'todos') query.where('prestadores.estado', estado);
+  if (provincia) query.whereRaw('LOWER(lugares_atencion.provincia) LIKE ?', [`%${String(provincia).toLowerCase()}%`]);
   if (localidad) query.whereRaw('LOWER(lugares_atencion.localidad) LIKE ?', [`%${String(localidad).toLowerCase()}%`]);
   if (especialidad) query.whereRaw('LOWER(especialidades.nombre) LIKE ?', [`%${String(especialidad).toLowerCase()}%`]);
 
@@ -528,6 +530,7 @@ const buildFilteredQuery = (queryParams) => {
         .whereRaw("LOWER(prestadores.nombre || ' ' || prestadores.apellido) LIKE ?", [text])
         .orWhereRaw('LOWER(prestadores.email) LIKE ?', [text])
         .orWhereRaw('LOWER(especialidades.nombre) LIKE ?', [text])
+        .orWhereRaw('LOWER(lugares_atencion.provincia) LIKE ?', [text])
         .orWhereRaw('LOWER(lugares_atencion.localidad) LIKE ?', [text]);
       if (cleanSearch) builder.orWhere('prestadores.cuit', 'like', `%${cleanSearch}%`);
     });
