@@ -453,20 +453,23 @@ const searchAffiliates = async (query, trx = db) => {
   const like = `%${query.toLowerCase()}%`;
 
   return trx('afiliados')
+    .leftJoin('planes', 'afiliados.plan_id', 'planes.id')
     .select(
-      'id',
-      'nombre as first_name',
-      'apellido as last_name',
-      'nro_documento as document_number',
-      'nro_credencial as credencial_number',
-      'fecha_nacimiento as birth_date',
-      'activo as status'
+      'afiliados.id',
+      'afiliados.nombre as first_name',
+      'afiliados.apellido as last_name',
+      'afiliados.nro_documento as document_number',
+      'afiliados.nro_credencial as credencial_number',
+      'afiliados.fecha_nacimiento as birth_date',
+      'afiliados.activo as status',
+      'planes.nombre as plan_type',
+      'planes.codigo as plan_code'
     )
     .where(function () {
-      this.whereRaw('LOWER(nombre) LIKE ?', [like])
-        .orWhereRaw('LOWER(apellido) LIKE ?', [like])
-        .orWhereRaw('LOWER(nro_credencial) LIKE ?', [like])
-        .orWhereRaw('LOWER(nro_documento) LIKE ?', [like]);
+      this.whereRaw('LOWER(afiliados.nombre) LIKE ?', [like])
+        .orWhereRaw('LOWER(afiliados.apellido) LIKE ?', [like])
+        .orWhereRaw('LOWER(afiliados.nro_credencial) LIKE ?', [like])
+        .orWhereRaw('LOWER(afiliados.nro_documento) LIKE ?', [like]);
     })
     .limit(10);
 };
@@ -567,16 +570,19 @@ const findActiveSituation = async (affiliateId, type, prestadorId, ignoreId = nu
 
 const getAffiliateById = async (affiliateId, trx = db) => {
   return trx('afiliados')
+    .leftJoin('planes', 'afiliados.plan_id', 'planes.id')
     .select(
-      'id',
-      'nombre as first_name',
-      'apellido as last_name',
-      'nro_documento as document_number',
-      'nro_credencial as credencial_number',
-      'fecha_nacimiento as birth_date',
-      'activo as status'
+      'afiliados.id',
+      'afiliados.nombre as first_name',
+      'afiliados.apellido as last_name',
+      'afiliados.nro_documento as document_number',
+      'afiliados.nro_credencial as credencial_number',
+      'afiliados.fecha_nacimiento as birth_date',
+      'afiliados.activo as status',
+      'planes.nombre as plan_type',
+      'planes.codigo as plan_code'
     )
-    .where({ id: affiliateId })
+    .where('afiliados.id', affiliateId)
     .first();
 };
 
