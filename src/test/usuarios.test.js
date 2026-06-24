@@ -17,8 +17,8 @@ describe('Affiliates Endpoints', () => {
     document_number: '12345678',
     document_type: 'DNI',
     status: true,
-    plan_type: 'Plan UNAHUR',
-    plan_code: 'BASIC',
+    plan_type: 'ORO',
+    plan_code: '410',
   };
 
   beforeEach(() => {

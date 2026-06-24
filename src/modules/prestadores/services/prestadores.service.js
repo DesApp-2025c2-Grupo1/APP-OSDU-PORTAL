@@ -144,7 +144,7 @@ const serializeAffiliate = (affiliate) => {
     id: affiliate.id,
     nombre,
     nro: affiliate.credencial_number,
-    tipo: affiliate.plan_type || 'Plan UNAHUR',
+    tipo: affiliate.plan_type || affiliate.plan_code || null,
     edad: ageFromBirthDate(affiliate.birth_date),
     iniciales: initials(nombre),
     color: 'bg-teal-100 text-teal-700',
