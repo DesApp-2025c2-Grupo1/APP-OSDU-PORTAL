@@ -9,7 +9,7 @@ exports.seed = async function (knex) {
         {
             id: 1,
             usuario_id: 2,
-            nro_credencial: '01-00000001',
+            nro_credencial: '0000001-01',
             tipo_documento: 'DNI',
             nro_documento: '12345678',
             fecha_nacimiento: '1990-01-01',
@@ -33,6 +33,18 @@ exports.seed = async function (knex) {
       SELECT setval(
         pg_get_serial_sequence('afiliados', 'id'),
         (SELECT COALESCE(MAX(id), 1) FROM afiliados),
+        true
+      )
+    `);
+
+    await knex.raw(`
+      SELECT setval(
+        'afiliado_credencial_base_seq',
+        (
+          SELECT COALESCE(MAX(split_part(nro_credencial, '-', 1)::BIGINT), 1)
+          FROM afiliados
+          WHERE nro_credencial ~ '^[0-9]+-[0-9]+$'
+        ),
         true
       )
     `);

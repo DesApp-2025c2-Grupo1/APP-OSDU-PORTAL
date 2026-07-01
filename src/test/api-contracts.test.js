@@ -193,6 +193,17 @@ describe('API contracts normalization', () => {
     });
   });
 
+  it('mantiene el formato canónico de credenciales de afiliados', () => {
+    expect(affiliatesService._private.formatCredentialNumber(7, 1)).toBe('0000007-01');
+    expect(affiliatesService._private.formatCredentialNumber('42', 3)).toBe('0000042-03');
+    expect(affiliatesService._private.getCredentialParts('0000042-03')).toEqual({
+      base: '0000042',
+      suffix: 3,
+    });
+    expect(affiliatesService._private.getCredentialParts('credencial-pendiente')).toBeNull();
+    expect(affiliatesService._private.getCredentialParts('0000042-AA')).toBeNull();
+  });
+
   it('normaliza aliases de estado de solicitudes', () => {
     const payload = prestadoresService._private.normalizeSolicitudStatusPayload({
       status: 'Aprobada',
