@@ -427,6 +427,18 @@ const assertFamilyMemberName = (member) => {
   return { firstName, lastName };
 };
 
+const formatCredentialNumber = (base, suffix = 1) =>
+  `${String(base).padStart(7, '0')}-${String(suffix).padStart(2, '0')}`;
+
+const getCredentialParts = (credential = '') => {
+  const match = /^(\d+)-(\d+)$/.exec(String(credential || '').trim());
+  if (!match) return null;
+  return {
+    base: match[1],
+    suffix: Number(match[2])
+  };
+};
+
 const createAffiliateSituations = async (affiliateId, situations, trx) => {
   for (const situation of situations) {
     const typeRow = situation.id
@@ -445,7 +457,9 @@ const createAffiliateSituations = async (affiliateId, situations, trx) => {
 };
 
 const createFamilyGroupMembers = async (holder, familyGroup, trx) => {
-  let index = 2;
+  const holderCredential = getCredentialParts(holder.credencial_number);
+  const baseCredential = holderCredential?.base || String(holder.id).padStart(7, '0');
+  let nextSuffix = (holderCredential?.suffix || 1) + 1;
 
   for (const member of familyGroup) {
     const documentType = member.tipoDocumento || 'DNI';
@@ -454,12 +468,10 @@ const createFamilyGroupMembers = async (holder, familyGroup, trx) => {
 
     const { firstName, lastName } = assertFamilyMemberName(member);
     const email = holder.email;
-    const baseCredential = String(holder.credencial_number || '').split('-')[0] || String(holder.id).padStart(7, '0');
-
     const [createdRaw] = await trx('afiliados')
       .insert({
         usuario_id: holder.user_id,
-        nro_credencial: `${baseCredential}-${String(index).padStart(2, '0')}`,
+        nro_credencial: formatCredentialNumber(baseCredential, nextSuffix),
         nro_documento: member.nroDocumento,
         tipo_documento: documentType,
         fecha_nacimiento: member.fechaNacimiento || holder.birth_date,
@@ -481,19 +493,14 @@ const createFamilyGroupMembers = async (holder, familyGroup, trx) => {
     const created = await affiliateRepository.getAffiliateById(createdRaw.id || createdRaw, trx);
 
     await createAffiliateSituations(created.id, member.situaciones || [], trx);
-    index += 1;
+    nextSuffix += 1;
   }
 };
 
 const generateCredencialNumber = async (trx) => {
-  const result = await affiliateRepository.getLastCredencialNumber(trx);
-  const max = result ? result.max : null;
-
-  if (!max) return '0000001-01';
-
-  const [numberPart] = max.split('-');
-  const nextNumber = parseInt(numberPart, 10) + 1;
-  return `${nextNumber.toString().padStart(7, '0')}-01`;
+  const result = await trx.raw("SELECT nextval('afiliado_credencial_base_seq') AS base");
+  const base = result.rows?.[0]?.base || result[0]?.base;
+  return formatCredentialNumber(base, 1);
 };
 
 const toDateStr = (val) => {
@@ -664,11 +671,18 @@ const getFamilyGroup = async (req, res) => {
 };
 
 const generateFamilyCredentialNumber = async (holderId, trx) => {
+  await trx.raw('SELECT pg_advisory_xact_lock(?)', [Number(holderId)]);
+
   const family = await affiliateRepository.getFamilyByHolderId(holderId, trx);
   const titular = family.find((member) => member.id === holderId) || family[0];
-  const base = String(titular?.credencial_number || '').split('-')[0] || String(holderId).padStart(7, '0');
-  const next = family.length + 1;
-  return `${base}-${String(next).padStart(2, '0')}`;
+  const titularParts = getCredentialParts(titular?.credencial_number);
+  const base = titularParts?.base || String(holderId).padStart(7, '0');
+  const maxSuffix = family.reduce((max, member) => {
+    const parts = getCredentialParts(member.credencial_number);
+    return parts?.base === base ? Math.max(max, parts.suffix) : max;
+  }, 0);
+
+  return formatCredentialNumber(base, maxSuffix + 1);
 };
 
 const createFamilyMember = async (req, res) => {
@@ -1470,5 +1484,7 @@ module.exports = {
 	    assertFamilyMemberName,
 	    toDateStr,
 	    toDisplayDate,
+	    formatCredentialNumber,
+	    getCredentialParts,
 	  }
 };
